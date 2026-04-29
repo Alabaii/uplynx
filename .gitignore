@@ -1,0 +1,8 @@
+./dist
+./node_modules
+/.vscode
+PLAN.md
+prd.md
+node_modules
+dist
+./guidelines
