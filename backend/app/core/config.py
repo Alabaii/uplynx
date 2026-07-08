@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     deployment_mode: Literal["team", "enterprise"] = "team"
     team_max_users: int = 20
     team_max_monitors: int = 100
+    login_rate_limit_attempts: int = 5
+    login_rate_limit_window_seconds: int = 60
+    register_rate_limit_attempts: int = 10
+    register_rate_limit_window_seconds: int = 300
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
