@@ -11,6 +11,7 @@ const History = React.lazy(() => import('./pages/History'));
 const ConfigEditor = React.lazy(() => import('./pages/ConfigEditor'));
 const TelegramSettings = React.lazy(() => import('./pages/Telegram'));
 const Team = React.lazy(() => import('./pages/Team'));
+const StatusPage = React.lazy(() => import('./pages/StatusPage'));
 
 const PageLoader = () => (
   <div className="flex min-h-[16rem] items-center justify-center rounded-lg bg-card text-sm text-placeholder shadow-card">
@@ -33,6 +34,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 export const router = createBrowserRouter([
   { path: '/login', element: withSuspense(<AuthPage />) },
   { path: '/register', element: withSuspense(<AuthPage />) },
+  { path: '/status/:slug', element: withSuspense(<StatusPage />) },
   {
     path: '/',
     element: (

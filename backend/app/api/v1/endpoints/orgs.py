@@ -22,6 +22,7 @@ def to_org_read(org: Organization, role: str) -> OrgRead:
         role=role,
         quota_monitors=org.quota_monitors,
         quota_members=org.quota_members,
+        status_page_enabled=org.status_page_enabled,
     )
 
 
@@ -74,8 +75,9 @@ def update_current_org(
     db: Session = Depends(get_db),
 ) -> OrgRead:
     data = payload.model_dump(exclude_unset=True)
-    if data.get("name") is None:
-        data.pop("name", None)  # name — NOT NULL, явный null игнорируем
+    for field in ("name", "status_page_enabled"):
+        if data.get(field) is None:
+            data.pop(field, None)  # NOT NULL-поля, явный null игнорируем
     for field, value in data.items():
         setattr(ctx.org, field, value)
     record(

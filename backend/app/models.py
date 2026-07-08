@@ -35,6 +35,7 @@ class Organization(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     quota_monitors: Mapped[int | None] = mapped_column(Integer)
     quota_members: Mapped[int | None] = mapped_column(Integer)
+    status_page_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 class OrgMember(Base):

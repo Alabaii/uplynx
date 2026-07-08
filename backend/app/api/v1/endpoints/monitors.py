@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, case, func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import OrgContext, get_current_org_member, require_role
@@ -10,6 +10,7 @@ from app.models import CheckResult, Monitor, Organization
 from app.schemas import CheckResultRead, MonitorCreate, MonitorRead, MonitorStatus, MonitorUpdate, MonitorUptimeRead
 from app.services.audit import record
 from app.services.config_sync import create_monitor_from_payload, persist_monitors_as_config, update_monitor_from_payload
+from app.services.uptime import collect_uptime_stats
 
 router = APIRouter()
 
@@ -72,48 +73,18 @@ def monitors_uptime(
     since_map = {"24h": timedelta(days=1), "7d": timedelta(days=7), "30d": timedelta(days=30)}
     since = datetime.now(timezone.utc) - since_map[range]
 
-    stats = db.execute(
-        select(
-            Monitor.id,
-            Monitor.slug,
-            func.count(CheckResult.id).label("checks_total"),
-            func.sum(case((CheckResult.status == "up", 1), else_=0)).label("checks_up"),
-            func.avg(CheckResult.response_time_ms).label("avg_response_ms"),
+    return [
+        MonitorUptimeRead(
+            monitor_id=row.slug,
+            uptime_pct=row.uptime_pct,
+            checks_total=row.checks_total,
+            avg_response_ms=row.avg_response_ms,
+            last_check_at=row.last_check_at,
+            last_status=row.last_status,
+            last_response_ms=row.last_response_ms,
         )
-        .outerjoin(CheckResult, and_(CheckResult.monitor_id == Monitor.id, CheckResult.timestamp >= since))
-        .where(Monitor.org_id == ctx.org.id)
-        .group_by(Monitor.id, Monitor.slug)
-        .order_by(Monitor.slug)
-    ).all()
-
-    last_rank = (
-        func.row_number()
-        .over(partition_by=CheckResult.monitor_id, order_by=(CheckResult.timestamp.desc(), CheckResult.id.desc()))
-        .label("last_rank")
-    )
-    ranked = (
-        select(CheckResult.monitor_id, CheckResult.timestamp, CheckResult.status, CheckResult.response_time_ms, last_rank)
-        .join(Monitor, Monitor.id == CheckResult.monitor_id)
-        .where(Monitor.org_id == ctx.org.id, CheckResult.timestamp >= since)
-        .subquery()
-    )
-    last_checks = {row.monitor_id: row for row in db.execute(select(ranked).where(ranked.c.last_rank == 1)).all()}
-
-    uptime = []
-    for row in stats:
-        last = last_checks.get(row.id)
-        uptime.append(
-            MonitorUptimeRead(
-                monitor_id=row.slug,
-                uptime_pct=round(row.checks_up / row.checks_total * 100, 1) if row.checks_total else None,
-                checks_total=row.checks_total,
-                avg_response_ms=round(row.avg_response_ms) if row.avg_response_ms is not None else None,
-                last_check_at=last.timestamp if last else None,
-                last_status=last.status if last else None,
-                last_response_ms=last.response_time_ms if last else None,
-            )
-        )
-    return uptime
+        for row in collect_uptime_stats(db, ctx.org.id, since)
+    ]
 
 
 @router.get("/monitors/{monitor_id}", response_model=MonitorRead)
