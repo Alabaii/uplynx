@@ -45,10 +45,12 @@ export type Monitor = {
   url: string | null;
   interval: number;
   enabled: boolean;
+  confirmations?: number;
   config: {
     expected?: {
       status?: number;
       body_contains?: string;
+      response_time_ms?: number;
     };
     steps?: BrowserStep[];
   };
@@ -233,8 +235,9 @@ export function createMonitor(payload: {
   type: MonitorType;
   url?: string;
   interval: number;
-  expected?: { status?: number; body_contains?: string };
+  expected?: { status?: number; body_contains?: string; response_time_ms?: number };
   steps?: BrowserStep[];
+  confirmations?: number;
 }) {
   return request<Monitor>('/monitors', {
     method: 'POST',

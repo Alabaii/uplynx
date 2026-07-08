@@ -15,6 +15,20 @@ class BrowserRunner(Protocol):
     async def run(self, task: CheckTask) -> dict[str, Any]: ...
 
 
+def classify_http_result(elapsed_ms: int, status_code: int, body_text: str, expected: dict[str, Any]) -> tuple[str, str | None]:
+    """Чистая классификация HTTP-ответа: сначала доступность (статус, тело), потом скорость."""
+    expected_status = expected.get("status")
+    if expected_status and status_code != expected_status:
+        return "down", f"expected status {expected_status}, got {status_code}"
+    body_contains = expected.get("body_contains")
+    if body_contains and body_contains not in body_text:
+        return "degraded", "expected body text not found"
+    threshold = expected.get("response_time_ms")
+    if threshold and elapsed_ms > threshold:
+        return "degraded", f"slow response: {elapsed_ms} ms > {threshold} ms"
+    return "up", None
+
+
 async def run_http_check(task: CheckTask) -> dict[str, Any]:
     if not task.url:
         return {"status": "down", "response_time_ms": None, "error": "missing url", "details": {}}
@@ -24,26 +38,11 @@ async def run_http_check(task: CheckTask) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=task.timeout_seconds, follow_redirects=True) as client:
             response = await client.get(task.url)
         elapsed = int((time.perf_counter() - started) * 1000)
-        expected_status = expected.get("status")
-        body_contains = expected.get("body_contains")
-        if expected_status and response.status_code != expected_status:
-            return {
-                "status": "down",
-                "response_time_ms": elapsed,
-                "error": f"expected status {expected_status}, got {response.status_code}",
-                "details": {"status_code": response.status_code},
-            }
-        if body_contains and body_contains not in response.text:
-            return {
-                "status": "degraded",
-                "response_time_ms": elapsed,
-                "error": "expected body text not found",
-                "details": {"status_code": response.status_code},
-            }
+        check_status, error = classify_http_result(elapsed, response.status_code, response.text, expected)
         return {
-            "status": "up",
+            "status": check_status,
             "response_time_ms": elapsed,
-            "error": None,
+            "error": error,
             "details": {"status_code": response.status_code},
         }
     except Exception as exc:  # noqa: BLE001

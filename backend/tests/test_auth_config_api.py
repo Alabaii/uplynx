@@ -85,6 +85,41 @@ def test_disabled_monitor_survives_config_round_trip(client, auth_headers):
     assert monitors[0]["status"] == "paused"
 
 
+def test_confirmations_and_response_time_survive_config_round_trip(client, auth_headers):
+    content = """
+version: 1
+monitors:
+  - id: flappy
+    type: http
+    url: https://example.com
+    interval: 60
+    confirmations: 3
+    expected:
+      status: 200
+      response_time_ms: 1500
+  - id: plain
+    type: http
+    url: https://example.com
+    interval: 60
+"""
+    uploaded = client.post("/api/v1/config", json={"content": content, "format": "yaml"}, headers=auth_headers)
+    assert uploaded.status_code == 200
+
+    monitors = {m["id"]: m for m in client.get("/api/v1/monitors", headers=auth_headers).json()}
+    assert monitors["flappy"]["confirmations"] == 3
+    assert monitors["flappy"]["config"]["expected"]["response_time_ms"] == 1500
+    assert monitors["plain"]["confirmations"] == 1
+    # дефолт не хранится в config_json
+    assert "confirmations" not in monitors["plain"]["config"]
+
+    # регенерация конфига из БД (build_config_from_db) — без потерь, confirmations=1 не пишется
+    assert client.put("/api/v1/monitors/plain", json={"interval": 120}, headers=auth_headers).status_code == 200
+    regenerated = client.get("/api/v1/config", headers=auth_headers).json()["content"]
+    assert "confirmations: 3" in regenerated
+    assert "response_time_ms: 1500" in regenerated
+    assert regenerated.count("confirmations:") == 1
+
+
 def test_team_user_limit(client, monkeypatch):
     from app.core.config import get_settings
 
