@@ -18,9 +18,16 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24
     scheduler_poll_seconds: int = 5
+    # максимум мониторов одной организации в батче шедулера (fair scheduling)
+    scheduler_org_batch_limit: int = 200
     check_timeout_seconds: int = 30
+    retention_days: int = 365
     browser_concurrency: int = 2
     telegram_api_base: str = "https://api.telegram.org"
+    # VAPID-ключи для web push (python -m app.tools.vapid); если не заданы — push отключён
+    vapid_public_key: str | None = None
+    vapid_private_key: str | None = None
+    vapid_subject: str = "mailto:admin@example.com"
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     secret_encryption_key: str | None = None
     deployment_mode: Literal["team", "enterprise"] = "team"

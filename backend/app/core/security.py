@@ -37,20 +37,30 @@ def verify_password(password: str, hashed_password: str) -> bool:
     return pwd_context.verify(password, hashed_password)
 
 
-def create_access_token(subject: str, expires_delta: timedelta | None = None) -> str:
+def create_access_token(
+    subject: str,
+    expires_delta: timedelta | None = None,
+    extra_claims: dict[str, Any] | None = None,
+) -> str:
     settings = get_settings()
     expire = datetime.now(timezone.utc) + (
         expires_delta or timedelta(minutes=settings.access_token_expire_minutes)
     )
-    payload: dict[str, Any] = {"sub": subject, "exp": expire}
+    payload: dict[str, Any] = {"sub": subject, "exp": expire, **(extra_claims or {})}
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
-def decode_access_token(token: str) -> str | None:
+def decode_token_payload(token: str) -> dict[str, Any] | None:
     settings = get_settings()
     try:
-        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
-        subject = payload.get("sub")
-        return str(subject) if subject else None
+        return jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
     except JWTError:
         return None
+
+
+def decode_access_token(token: str) -> str | None:
+    payload = decode_token_payload(token)
+    if not payload:
+        return None
+    subject = payload.get("sub")
+    return str(subject) if subject else None

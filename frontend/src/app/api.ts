@@ -152,12 +152,59 @@ export function login(email: string, password: string) {
   });
 }
 
+export type OrgRole = 'owner' | 'admin' | 'member' | 'viewer';
+
 export type OrganizationInfo = {
   id: number;
   name: string;
   slug: string;
-  role: string;
+  role: OrgRole;
 };
+
+export type OrgMember = {
+  user_id: number;
+  email: string;
+  role: OrgRole;
+  created_at: string;
+};
+
+export function listOrgMembers() {
+  return request<OrgMember[]>('/orgs/current/members');
+}
+
+export function addOrgMember(email: string, role: OrgRole) {
+  return request<OrgMember>('/orgs/current/members', {
+    method: 'POST',
+    body: { email, role },
+  });
+}
+
+export function updateMemberRole(userId: number, role: OrgRole) {
+  return request<OrgMember>(`/orgs/current/members/${userId}`, {
+    method: 'PATCH',
+    body: { role },
+  });
+}
+
+export function removeOrgMember(userId: number) {
+  return request<void>(`/orgs/current/members/${userId}`, {
+    method: 'DELETE',
+  });
+}
+
+export type AuditEvent = {
+  id: number;
+  action: string;
+  entity: string;
+  entity_id: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+  actor_email: string | null;
+};
+
+export function listAuditEvents(limit = 50, offset = 0) {
+  return request<AuditEvent[]>(`/orgs/current/audit?limit=${limit}&offset=${offset}`);
+}
 
 export function getMe() {
   return request<{ id: number; email: string; organization?: OrganizationInfo }>('/auth/me');
@@ -218,6 +265,20 @@ export function getHistory(params: { monitorId?: string; range?: string; status?
   return request<CheckResult[]>(`/history${search.size ? `?${search.toString()}` : ''}`);
 }
 
+export type MonitorUptime = {
+  monitor_id: string;
+  uptime_pct: number | null;
+  checks_total: number;
+  avg_response_ms: number | null;
+  last_check_at: string | null;
+  last_status: MonitorStatus | null;
+  last_response_ms: number | null;
+};
+
+export function getMonitorsUptime(range: '24h' | '7d' | '30d' = '24h') {
+  return request<MonitorUptime[]>(`/monitors/uptime?range=${range}`);
+}
+
 export type TelegramIntegration = {
   connected: boolean;
   chat_id: string | null;
@@ -239,5 +300,28 @@ export function connectTelegram(payload: { bot_token: string; chat_id: string; a
 export function testTelegram() {
   return request<{ ok: boolean; detail: string }>('/telegram/test', {
     method: 'POST',
+  });
+}
+
+export type PushConfig = {
+  enabled: boolean;
+  public_key: string | null;
+};
+
+export function getPushConfig() {
+  return request<PushConfig>('/push/config', { auth: false });
+}
+
+export function subscribePush(payload: { endpoint: string; keys: { p256dh: string; auth: string } }) {
+  return request<void>('/push/subscribe', {
+    method: 'POST',
+    body: payload,
+  });
+}
+
+export function unsubscribePush(endpoint: string) {
+  return request<void>('/push/unsubscribe', {
+    method: 'POST',
+    body: { endpoint },
   });
 }

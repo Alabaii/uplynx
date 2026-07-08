@@ -1,6 +1,6 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
@@ -95,6 +95,24 @@ class CheckResult(Base):
     monitor: Mapped[Monitor] = relationship(back_populates="results")
 
 
+class UptimeDaily(Base):
+    __tablename__ = "uptime_daily"
+    __table_args__ = (
+        UniqueConstraint("monitor_id", "date", name="uq_uptime_daily_monitor_date"),
+        Index("ix_uptime_daily_org_id", "org_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    monitor_id: Mapped[int] = mapped_column(ForeignKey("monitors.id", ondelete="CASCADE"), nullable=False)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    checks_total: Mapped[int] = mapped_column(Integer, nullable=False)
+    checks_up: Mapped[int] = mapped_column(Integer, nullable=False)
+    checks_degraded: Mapped[int] = mapped_column(Integer, nullable=False)
+    checks_down: Mapped[int] = mapped_column(Integer, nullable=False)
+    avg_response_ms: Mapped[int | None] = mapped_column(Integer)
+
+
 class ConfigVersion(Base):
     __tablename__ = "config_versions"
     __table_args__ = (
@@ -111,11 +129,43 @@ class ConfigVersion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
+class PushSubscription(Base):
+    __tablename__ = "push_subscriptions"
+    __table_args__ = (
+        UniqueConstraint("endpoint", name="uq_push_subscriptions_endpoint"),
+        Index("ix_push_subscriptions_org_id", "org_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    endpoint: Mapped[str] = mapped_column(Text, nullable=False)
+    p256dh: Mapped[str] = mapped_column(String(255), nullable=False)
+    auth: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+    __table_args__ = (
+        Index("ix_audit_log_org_created", "org_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    # nullable — на будущее для системных событий (scheduler, воркеры)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    action: Mapped[str] = mapped_column(String(60), nullable=False)
+    entity: Mapped[str] = mapped_column(String(60), nullable=False)
+    entity_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
 class TelegramIntegration(Base):
     __tablename__ = "telegram_integrations"
     __table_args__ = (
-        UniqueConstraint("user_id", name="uq_telegram_user"),
-        Index("ix_telegram_integrations_org_id", "org_id"),
+        Index("ix_telegram_integrations_org_id", "org_id", unique=True),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

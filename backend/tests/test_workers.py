@@ -5,11 +5,13 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
+from app.core.config import get_settings
 from app.core.database import Base
 from app.core.security import encrypt_secret
-from app.models import CheckResult, Monitor, Organization, TelegramIntegration, User
+from app.models import CheckResult, Monitor, Organization, PushSubscription, TelegramIntegration, User
 from app.schemas import CheckTask
 from app.services.checks import run_browser_check
+from app.services.webpush import PushSubscriptionGone
 from app.workers.base import persist_result
 
 
@@ -129,6 +131,53 @@ def test_alert_sent_on_status_change(worker_session_factory, monkeypatch):
     assert "recovered" in calls[1][2]
 
 
+def test_alert_uses_org_integration_not_creators(worker_session_factory, monkeypatch):
+    # монитор создал user A, интеграцию настроил user B (admin) той же организации
+    with worker_session_factory() as db:
+        creator = User(email="creator@example.com", hashed_password="x")
+        admin = User(email="admin@example.com", hashed_password="x")
+        org = Organization(name="My team", slug="default")
+        db.add_all([creator, admin, org])
+        db.flush()
+        monitor = Monitor(
+            user_id=creator.id,
+            org_id=org.id,
+            slug="site",
+            name="Site",
+            type="http",
+            status="up",
+            url="https://example.com",
+            interval=60,
+            config_json={},
+            enabled=True,
+        )
+        db.add(monitor)
+        db.add(
+            TelegramIntegration(
+                user_id=admin.id,
+                org_id=org.id,
+                bot_token_secret=encrypt_secret("123456:org-wide-token"),
+                chat_id="99",
+                alert_scopes=["down"],
+            )
+        )
+        db.commit()
+        monitor_id = monitor.id
+
+    calls = []
+
+    async def fake_send(bot_token, chat_id, text):
+        calls.append((bot_token, chat_id, text))
+        return True
+
+    monkeypatch.setattr("app.workers.base.send_telegram_message", fake_send)
+
+    asyncio.run(persist_result(make_task(monitor_id, "org1"), {"status": "down", "error": "boom", "details": {}}))
+    assert len(calls) == 1
+    assert calls[0][0] == "123456:org-wide-token"
+    assert calls[0][1] == "99"
+
+
 def test_alert_failure_does_not_break_persist(worker_session_factory, monkeypatch):
     monitor_id = seed_monitor(worker_session_factory, status="up")
 
@@ -142,6 +191,82 @@ def test_alert_failure_does_not_break_persist(worker_session_factory, monkeypatc
     with worker_session_factory() as db:
         assert db.scalar(select(CheckResult).where(CheckResult.task_id == "f1")) is not None
         assert db.get(Monitor, monitor_id).status == "down"
+
+
+def enable_push(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "vapid_public_key", "test-public-key")
+    monkeypatch.setattr(settings, "vapid_private_key", "test-private-key")
+
+
+def add_push_subscription(session_factory, endpoint):
+    with session_factory() as db:
+        org = db.scalar(select(Organization))
+        user = db.scalar(select(User))
+        db.add(PushSubscription(org_id=org.id, user_id=user.id, endpoint=endpoint, p256dh="p", auth="a"))
+        db.commit()
+
+
+def test_push_alerts_sent_to_all_org_subscriptions(worker_session_factory, monkeypatch):
+    enable_push(monkeypatch)
+    monitor_id = seed_monitor(worker_session_factory, status="up", with_integration=False)
+    add_push_subscription(worker_session_factory, "https://push.example/one")
+    add_push_subscription(worker_session_factory, "https://push.example/two")
+
+    pushed = []
+
+    def fake_push(subscription, title, body, url="/"):
+        pushed.append((subscription.endpoint, title, body, url))
+        return True
+
+    monkeypatch.setattr("app.workers.base.send_web_push", fake_push)
+
+    asyncio.run(persist_result(make_task(monitor_id, "p1"), {"status": "down", "error": "boom", "details": {}}))
+
+    assert sorted(item[0] for item in pushed) == ["https://push.example/one", "https://push.example/two"]
+    assert pushed[0][1] == "site is DOWN"
+    assert "down" in pushed[0][2]
+    assert pushed[0][3] == "/monitors/site"
+
+    # тот же статус повторно — push не дублируется
+    asyncio.run(persist_result(make_task(monitor_id, "p2"), {"status": "down", "error": "boom", "details": {}}))
+    assert len(pushed) == 2
+
+
+def test_push_dead_subscription_removed(worker_session_factory, monkeypatch):
+    enable_push(monkeypatch)
+    monitor_id = seed_monitor(worker_session_factory, status="up", with_integration=False)
+    add_push_subscription(worker_session_factory, "https://push.example/alive")
+    add_push_subscription(worker_session_factory, "https://push.example/dead")
+
+    def fake_push(subscription, title, body, url="/"):
+        if subscription.endpoint.endswith("/dead"):
+            raise PushSubscriptionGone
+        return True
+
+    monkeypatch.setattr("app.workers.base.send_web_push", fake_push)
+
+    asyncio.run(persist_result(make_task(monitor_id, "p1"), {"status": "down", "error": "boom", "details": {}}))
+
+    with worker_session_factory() as db:
+        endpoints = [row.endpoint for row in db.scalars(select(PushSubscription)).all()]
+        assert endpoints == ["https://push.example/alive"]
+        # результат проверки сохранён несмотря на мёртвую подписку
+        assert db.scalar(select(CheckResult).where(CheckResult.task_id == "p1")) is not None
+
+
+def test_push_skipped_without_vapid_keys(worker_session_factory, monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "vapid_public_key", None)
+    monkeypatch.setattr(settings, "vapid_private_key", None)
+    monitor_id = seed_monitor(worker_session_factory, status="up", with_integration=False)
+    add_push_subscription(worker_session_factory, "https://push.example/one")
+
+    pushed = []
+    monkeypatch.setattr("app.workers.base.send_web_push", lambda *args, **kwargs: pushed.append(args))
+
+    asyncio.run(persist_result(make_task(monitor_id, "p1"), {"status": "down", "error": "boom", "details": {}}))
+    assert pushed == []
 
 
 def test_scheduler_publishes_due_and_advances_next_run_at(worker_session_factory, monkeypatch):
@@ -166,3 +291,58 @@ def test_scheduler_publishes_due_and_advances_next_run_at(worker_session_factory
 
     # монитор больше не due — повторная итерация ничего не публикует
     assert publish_due_checks(FakePublisher()) == 0
+
+
+def test_scheduler_fair_share_between_orgs(worker_session_factory, monkeypatch):
+    from app.workers.scheduler import publish_due_checks
+
+    monkeypatch.setattr("app.workers.scheduler.SessionLocal", worker_session_factory)
+    monkeypatch.setattr(get_settings(), "scheduler_org_batch_limit", 2)
+
+    due_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    with worker_session_factory() as db:
+        user = User(email="fair@example.com", hashed_password="x")
+        big = Organization(name="Big", slug="big")
+        small = Organization(name="Small", slug="small")
+        db.add_all([user, big, small])
+        db.flush()
+        for org, count in ((big, 5), (small, 1)):
+            for idx in range(count):
+                db.add(
+                    Monitor(
+                        user_id=user.id,
+                        org_id=org.id,
+                        slug=f"{org.slug}-{idx}",
+                        name=f"{org.slug}-{idx}",
+                        type="http",
+                        status="up",
+                        url="https://example.com",
+                        interval=60,
+                        config_json={},
+                        enabled=True,
+                        next_run_at=due_at,
+                    )
+                )
+        db.commit()
+        big_id, small_id = big.id, small.id
+
+    published = []
+
+    class FakePublisher:
+        def publish(self, task):
+            published.append(task)
+
+    # cap=2: у big публикуются только 2 из 5, у small — единственный
+    assert publish_due_checks(FakePublisher()) == 3
+
+    with worker_session_factory() as db:
+        published_ids = {task.monitor_id for task in published}
+        per_org: dict[int, int] = {}
+        for monitor in db.scalars(select(Monitor)).all():
+            next_run_at = monitor.next_run_at.replace(tzinfo=timezone.utc)
+            if monitor.id in published_ids:
+                per_org[monitor.org_id] = per_org.get(monitor.org_id, 0) + 1
+                assert next_run_at > due_at  # опубликованным сдвинули next_run_at
+            else:
+                assert next_run_at == due_at  # остальные ждут следующего тика
+        assert per_org == {big_id: 2, small_id: 1}

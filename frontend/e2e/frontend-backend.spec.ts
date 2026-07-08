@@ -34,4 +34,11 @@ test('frontend can register, create a monitor, and read generated config from ba
   await expect(page.getByRole('heading', { name: 'Edit the source of truth' })).toBeVisible();
   await expect(page.locator('textarea')).toContainText(`id: ${monitorSlug}`);
   await expect(page.locator('textarea')).toContainText('url: https://example.com/health');
+
+  // страница Team: первый зарегистрированный пользователь — owner организации
+  await page.getByRole('link', { name: 'Team' }).click();
+  await expect(page.getByRole('heading', { name: 'Members of My team' })).toBeVisible();
+  await expect(page.getByText('Your role: owner')).toBeVisible();
+  const memberRow = page.locator('div', { has: page.getByText(email, { exact: true }) }).last();
+  await expect(memberRow.getByText('owner', { exact: true })).toBeVisible();
 });

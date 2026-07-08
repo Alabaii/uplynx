@@ -15,7 +15,9 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `python -m alembic upgrade head && python -m uvicorn app.main:app --host 127.0.0.1 --port ${backendPort}`,
+      // Воркспейс общий для организации, поэтому e2e стартует с чистой БД — иначе
+      // данные прошлого прогона ломают сценарий "No monitors yet".
+      command: `python -c "import os; os.path.exists('e2e-monitor.db') and os.remove('e2e-monitor.db')" && python -m alembic upgrade head && python -m uvicorn app.main:app --host 127.0.0.1 --port ${backendPort}`,
       cwd: '../backend',
       url: `http://127.0.0.1:${backendPort}/health`,
       reuseExistingServer: !process.env.CI,

@@ -5,10 +5,15 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-monitor}
       POSTGRES_USER: ${POSTGRES_USER:-monitor}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-monitor}
+      # непривилегированная роль для API/воркеров — только с ней RLS реально работает
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER:-monitor_app}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-monitor_app}
     ports:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      # создаёт роль приложения при первой инициализации тома
+      - ./deploy/postgres-init.sh:/docker-entrypoint-initdb.d/10-app-role.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-monitor} -d ${POSTGRES_DB:-monitor}"]
       interval: 5s
@@ -29,7 +34,8 @@ services:
   backend:
     build: ./backend
     environment:
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-monitor}:${POSTGRES_PASSWORD:-monitor}@postgres:5432/${POSTGRES_DB:-monitor}
+      # API ходит в БД непривилегированной ролью — иначе RLS обходится суперпользователем
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_APP_USER:-monitor_app}:${POSTGRES_APP_PASSWORD:-monitor_app}@postgres:5432/${POSTGRES_DB:-monitor}
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-change-me}
       # development | production: в production запрещены дефолтные JWT-секреты
@@ -40,6 +46,10 @@ services:
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
       # team (лимиты пользователей/мониторов) | enterprise (без лимитов)
       DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-team}
+      # VAPID-ключи для web push (сгенерировать: python -m app.tools.vapid); пусто — push отключён
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
     ports:
       - "8000:8000"
     restart: unless-stopped
@@ -69,11 +79,15 @@ services:
     build: ./backend
     command: python -m app.workers.http_worker
     environment:
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-monitor}:${POSTGRES_PASSWORD:-monitor}@postgres:5432/${POSTGRES_DB:-monitor}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_APP_USER:-monitor_app}:${POSTGRES_APP_PASSWORD:-monitor_app}@postgres:5432/${POSTGRES_DB:-monitor}
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-change-me}
       # нужен воркерам для расшифровки bot token при отправке алертов
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
+      # VAPID-ключи для web push (сгенерировать: python -m app.tools.vapid); пусто — push отключён
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -88,12 +102,16 @@ services:
       context: ./backend
       dockerfile: Dockerfile.browser
     environment:
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-monitor}:${POSTGRES_PASSWORD:-monitor}@postgres:5432/${POSTGRES_DB:-monitor}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_APP_USER:-monitor_app}:${POSTGRES_APP_PASSWORD:-monitor_app}@postgres:5432/${POSTGRES_DB:-monitor}
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-change-me}
       # нужен воркерам для расшифровки bot token при отправке алертов
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
       BROWSER_CONCURRENCY: ${BROWSER_CONCURRENCY:-2}
+      # VAPID-ключи для web push (сгенерировать: python -m app.tools.vapid); пусто — push отключён
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
     restart: unless-stopped
     depends_on:
       postgres:

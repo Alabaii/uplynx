@@ -6,6 +6,9 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 MonitorType = Literal["http", "browser"]
 MonitorStatus = Literal["up", "down", "paused", "degraded", "pending"]
 BrowserAction = Literal["goto", "click", "type", "assert_text"]
+OrgRole = Literal["owner", "admin", "member", "viewer"]
+# owner назначается только при создании организации; передача владения — вне скоупа
+AssignableOrgRole = Literal["admin", "member", "viewer"]
 
 
 class Token(BaseModel):
@@ -39,6 +42,53 @@ class UserOrganizationRead(BaseModel):
 
 class MeRead(UserRead):
     organization: UserOrganizationRead
+
+
+class OrgRead(BaseModel):
+    id: int
+    name: str
+    slug: str
+    role: OrgRole
+    quota_monitors: int | None = None
+    quota_members: int | None = None
+
+
+class OrgCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    slug: str = Field(min_length=1, max_length=160, pattern=r"^[a-z0-9][a-z0-9-]*$")
+
+
+class OrgUpdate(BaseModel):
+    # null для квоты значим (снять лимит), поэтому обработка через exclude_unset
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    quota_monitors: int | None = Field(default=None, ge=0)
+    quota_members: int | None = Field(default=None, ge=1)
+
+
+class OrgMemberRead(BaseModel):
+    user_id: int
+    email: EmailStr
+    role: OrgRole
+    created_at: datetime
+
+
+class OrgMemberAdd(BaseModel):
+    email: EmailStr
+    role: AssignableOrgRole = "member"
+
+
+class OrgMemberUpdate(BaseModel):
+    role: AssignableOrgRole
+
+
+class AuditLogRead(BaseModel):
+    id: int
+    action: str
+    entity: str
+    entity_id: str
+    payload: dict[str, Any]
+    created_at: datetime
+    actor_email: str | None = None
 
 
 class BrowserStep(BaseModel):
@@ -152,6 +202,16 @@ class CheckResultRead(BaseModel):
     timestamp: datetime
 
 
+class MonitorUptimeRead(BaseModel):
+    monitor_id: str
+    uptime_pct: float | None
+    checks_total: int
+    avg_response_ms: int | None
+    last_check_at: datetime | None
+    last_status: MonitorStatus | None
+    last_response_ms: int | None
+
+
 class CheckTask(BaseModel):
     task_id: str
     monitor_id: int
@@ -179,6 +239,25 @@ class TelegramRead(BaseModel):
 class TelegramTestResponse(BaseModel):
     ok: bool
     detail: str
+
+
+class PushConfigRead(BaseModel):
+    enabled: bool
+    public_key: str | None = None
+
+
+class PushSubscriptionKeys(BaseModel):
+    p256dh: str = Field(min_length=1, max_length=255)
+    auth: str = Field(min_length=1, max_length=255)
+
+
+class PushSubscribe(BaseModel):
+    endpoint: str = Field(min_length=1, max_length=2048)
+    keys: PushSubscriptionKeys
+
+
+class PushUnsubscribe(BaseModel):
+    endpoint: str = Field(min_length=1, max_length=2048)
 
 
 class DeploymentLimits(BaseModel):

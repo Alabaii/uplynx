@@ -1,6 +1,8 @@
-from sqlalchemy import select
+from fastapi import HTTPException, status
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models import Organization, OrgMember, User
 
 DEFAULT_ORG_SLUG = "default"
@@ -16,6 +18,21 @@ def get_or_create_default_org(db: Session) -> Organization:
     return org
 
 
+def enforce_member_quota(db: Session, org: Organization) -> None:
+    """403, если в enterprise-режиме добавление ещё одного участника превысит quota_members.
+
+    В team-режиме действует глобальный env-лимит (TEAM_MAX_USERS), квоты организации игнорируются.
+    """
+    if get_settings().deployment_mode != "enterprise" or org.quota_members is None:
+        return
+    current = db.scalar(select(func.count()).select_from(OrgMember).where(OrgMember.org_id == org.id)) or 0
+    if current + 1 > org.quota_members:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Member quota reached: organization allows at most {org.quota_members} members",
+        )
+
+
 def ensure_membership(db: Session, user: User, org: Organization) -> OrgMember:
     member = db.scalar(select(OrgMember).where(OrgMember.org_id == org.id, OrgMember.user_id == user.id))
     if member:
@@ -25,19 +42,3 @@ def ensure_membership(db: Session, user: User, org: Organization) -> OrgMember:
     db.add(member)
     db.flush()
     return member
-
-
-def get_user_org(db: Session, user: User) -> Organization:
-    """Организация пользователя: в team-режиме — единственное членство (дефолтная организация)."""
-    org = db.scalar(
-        select(Organization)
-        .join(OrgMember, OrgMember.org_id == Organization.id)
-        .where(OrgMember.user_id == user.id)
-        .order_by(OrgMember.id)
-        .limit(1)
-    )
-    if org:
-        return org
-    org = get_or_create_default_org(db)
-    ensure_membership(db, user, org)
-    return org
