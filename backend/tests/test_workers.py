@@ -129,6 +129,53 @@ def test_alert_sent_on_status_change(worker_session_factory, monkeypatch):
     assert "recovered" in calls[1][2]
 
 
+def test_alert_uses_org_integration_not_creators(worker_session_factory, monkeypatch):
+    # монитор создал user A, интеграцию настроил user B (admin) той же организации
+    with worker_session_factory() as db:
+        creator = User(email="creator@example.com", hashed_password="x")
+        admin = User(email="admin@example.com", hashed_password="x")
+        org = Organization(name="My team", slug="default")
+        db.add_all([creator, admin, org])
+        db.flush()
+        monitor = Monitor(
+            user_id=creator.id,
+            org_id=org.id,
+            slug="site",
+            name="Site",
+            type="http",
+            status="up",
+            url="https://example.com",
+            interval=60,
+            config_json={},
+            enabled=True,
+        )
+        db.add(monitor)
+        db.add(
+            TelegramIntegration(
+                user_id=admin.id,
+                org_id=org.id,
+                bot_token_secret=encrypt_secret("123456:org-wide-token"),
+                chat_id="99",
+                alert_scopes=["down"],
+            )
+        )
+        db.commit()
+        monitor_id = monitor.id
+
+    calls = []
+
+    async def fake_send(bot_token, chat_id, text):
+        calls.append((bot_token, chat_id, text))
+        return True
+
+    monkeypatch.setattr("app.workers.base.send_telegram_message", fake_send)
+
+    asyncio.run(persist_result(make_task(monitor_id, "org1"), {"status": "down", "error": "boom", "details": {}}))
+    assert len(calls) == 1
+    assert calls[0][0] == "123456:org-wide-token"
+    assert calls[0][1] == "99"
+
+
 def test_alert_failure_does_not_break_persist(worker_session_factory, monkeypatch):
     monitor_id = seed_monitor(worker_session_factory, status="up")
 

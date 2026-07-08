@@ -203,7 +203,7 @@ def test_telegram_read_integration(client, auth_headers):
     assert token not in str(body)
 
 
-def test_user_isolation(client):
+def test_shared_workspace_within_org(client):
     user_a = {"email": "a@example.com", "password": "password123"}
     user_b = {"email": "b@example.com", "password": "password123"}
     client.post("/api/v1/auth/register", json=user_a)
@@ -218,12 +218,69 @@ def test_user_isolation(client):
     )
     assert created.status_code == 201
 
-    assert client.get("/api/v1/monitors", headers=headers_b).json() == []
-    assert client.get("/api/v1/monitors/site-a", headers=headers_b).status_code == 404
-    assert client.put("/api/v1/monitors/site-a", json={"enabled": False}, headers=headers_b).status_code == 404
-    assert client.delete("/api/v1/monitors/site-a", headers=headers_b).status_code == 404
-    assert client.get("/api/v1/config/versions", headers=headers_b).json() == []
-    assert client.get("/api/v1/history", headers=headers_b).json() == []
+    # user B — member той же организации: воркспейс общий
+    monitors = client.get("/api/v1/monitors", headers=headers_b).json()
+    assert [m["id"] for m in monitors] == ["site-a"]
+    assert client.get("/api/v1/monitors/site-a", headers=headers_b).status_code == 200
+    assert client.put("/api/v1/monitors/site-a", json={"enabled": False}, headers=headers_b).status_code == 200
+    assert len(client.get("/api/v1/config/versions", headers=headers_b).json()) == 2
+    assert client.get("/api/v1/history", headers=headers_b).status_code == 200
 
-    # монитор user A не пострадал
+    # изменение user B видно user A
+    assert client.get("/api/v1/monitors/site-a", headers=headers_a).json()["enabled"] is False
+
+
+def test_org_isolation(client, db_session_factory):
+    from sqlalchemy import select
+
+    from app.models import Organization, OrgMember, User
+
+    user_a = {"email": "a@example.com", "password": "password123"}
+    user_b = {"email": "b@example.com", "password": "password123"}
+    client.post("/api/v1/auth/register", json=user_a)
+    client.post("/api/v1/auth/register", json=user_b)
+    headers_a = {"Authorization": f"Bearer {client.post('/api/v1/auth/login', json=user_a).json()['access_token']}"}
+    headers_b = {"Authorization": f"Bearer {client.post('/api/v1/auth/login', json=user_b).json()['access_token']}"}
+
+    created = client.post(
+        "/api/v1/monitors",
+        json={"id": "site-a", "type": "http", "url": "https://example.com", "interval": 60},
+        headers=headers_a,
+    )
+    assert created.status_code == 201
+
+    # вторая организация напрямую в БД, user B — её owner
+    with db_session_factory() as db:
+        second_org = Organization(name="Second team", slug="second")
+        db.add(second_org)
+        db.flush()
+        user = db.scalar(select(User).where(User.email == "b@example.com"))
+        db.add(OrgMember(org_id=second_org.id, user_id=user.id, role="owner"))
+        db.commit()
+        second_org_id = second_org.id
+
+    switched = client.post(f"/api/v1/orgs/{second_org_id}/switch", headers=headers_b)
+    assert switched.status_code == 200
+    headers_b_second = {"Authorization": f"Bearer {switched.json()['access_token']}"}
+
+    # данные default-организации из второй организации не видны
+    assert client.get("/api/v1/monitors", headers=headers_b_second).json() == []
+    assert client.get("/api/v1/monitors/site-a", headers=headers_b_second).status_code == 404
+    assert client.put("/api/v1/monitors/site-a", json={"enabled": False}, headers=headers_b_second).status_code == 404
+    assert client.delete("/api/v1/monitors/site-a", headers=headers_b_second).status_code == 404
+    assert client.get("/api/v1/config/versions", headers=headers_b_second).json() == []
+    assert client.get("/api/v1/history", headers=headers_b_second).json() == []
+
+    # монитор default-организации не пострадал
     assert client.get("/api/v1/monitors/site-a", headers=headers_a).status_code == 200
+
+
+def test_legacy_token_without_org_claim_still_works(client, auth_headers):
+    from app.core.security import create_access_token
+
+    me = client.get("/api/v1/auth/me", headers=auth_headers).json()
+    legacy_headers = {"Authorization": f"Bearer {create_access_token(str(me['id']))}"}
+
+    body = client.get("/api/v1/auth/me", headers=legacy_headers).json()
+    assert body["organization"]["slug"] == "default"
+    assert client.get("/api/v1/monitors", headers=legacy_headers).status_code == 200

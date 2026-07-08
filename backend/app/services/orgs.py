@@ -25,19 +25,3 @@ def ensure_membership(db: Session, user: User, org: Organization) -> OrgMember:
     db.add(member)
     db.flush()
     return member
-
-
-def get_user_org(db: Session, user: User) -> Organization:
-    """Организация пользователя: в team-режиме — единственное членство (дефолтная организация)."""
-    org = db.scalar(
-        select(Organization)
-        .join(OrgMember, OrgMember.org_id == Organization.id)
-        .where(OrgMember.user_id == user.id)
-        .order_by(OrgMember.id)
-        .limit(1)
-    )
-    if org:
-        return org
-    org = get_or_create_default_org(db)
-    ensure_membership(db, user, org)
-    return org

@@ -8,6 +8,7 @@ import {
   PlusCircle,
   Send,
   Smartphone,
+  Users,
 } from 'lucide-react';
 import { clearSession, getSessionEmail } from '../auth';
 import { OfflineBanner } from '../components/OfflineBanner';
@@ -19,6 +20,7 @@ const navigation = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/config', label: 'Config', icon: FileCode2 },
   { to: '/monitors/new', label: 'New Monitor', icon: PlusCircle },
+  { to: '/team', label: 'Team', icon: Users },
   { to: '/telegram', label: 'Telegram', icon: Send },
 ];
 
@@ -162,7 +164,7 @@ export function AppLayout() {
       </div>
 
       <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-border bg-card px-2 pb-[env(safe-area-inset-bottom)] pt-2 shadow-bottom-sheet lg:hidden">
-        <div className="grid grid-cols-4 gap-1">
+        <div className="grid grid-cols-5 gap-1">
           {navigation.map((item) => (
             <NavLink
               key={item.to}

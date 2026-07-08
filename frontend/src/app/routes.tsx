@@ -10,6 +10,7 @@ const MonitorDetails = React.lazy(() => import('./pages/MonitorDetails'));
 const History = React.lazy(() => import('./pages/History'));
 const ConfigEditor = React.lazy(() => import('./pages/ConfigEditor'));
 const TelegramSettings = React.lazy(() => import('./pages/Telegram'));
+const Team = React.lazy(() => import('./pages/Team'));
 
 const PageLoader = () => (
   <div className="flex min-h-[16rem] items-center justify-center rounded-lg bg-card text-sm text-placeholder shadow-card">
@@ -46,6 +47,7 @@ export const router = createBrowserRouter([
       { path: 'monitors/:id/history', element: withSuspense(<History />) },
       { path: 'config', element: withSuspense(<ConfigEditor />) },
       { path: 'telegram', element: withSuspense(<TelegramSettings />) },
+      { path: 'team', element: withSuspense(<Team />) },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },

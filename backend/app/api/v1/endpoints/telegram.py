@@ -2,12 +2,11 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import OrgContext, get_current_org_member, require_role
 from app.core.database import get_db
 from app.core.security import decrypt_secret, encrypt_secret
-from app.models import TelegramIntegration, User
+from app.models import TelegramIntegration
 from app.schemas import TelegramConnect, TelegramRead, TelegramTestResponse
-from app.services.orgs import get_user_org
 from app.services.telegram import mask_token, send_telegram_message
 
 router = APIRouter()
@@ -15,10 +14,10 @@ router = APIRouter()
 
 @router.get("", response_model=TelegramRead)
 def read_integration(
-    user: User = Depends(get_current_user),
+    ctx: OrgContext = Depends(get_current_org_member),
     db: Session = Depends(get_db),
 ) -> TelegramRead:
-    integration = db.scalar(select(TelegramIntegration).where(TelegramIntegration.user_id == user.id))
+    integration = db.scalar(select(TelegramIntegration).where(TelegramIntegration.org_id == ctx.org.id))
     if not integration:
         return TelegramRead(connected=False)
     return TelegramRead(
@@ -32,18 +31,19 @@ def read_integration(
 @router.post("/connect", response_model=TelegramRead)
 def connect(
     payload: TelegramConnect,
-    user: User = Depends(get_current_user),
+    ctx: OrgContext = Depends(require_role("admin")),
     db: Session = Depends(get_db),
 ) -> TelegramRead:
-    integration = db.scalar(select(TelegramIntegration).where(TelegramIntegration.user_id == user.id))
+    integration = db.scalar(select(TelegramIntegration).where(TelegramIntegration.org_id == ctx.org.id))
     if integration:
+        integration.user_id = ctx.user.id  # кто настроил
         integration.bot_token_secret = encrypt_secret(payload.bot_token)
         integration.chat_id = payload.chat_id
         integration.alert_scopes = payload.alert_scopes
     else:
         integration = TelegramIntegration(
-            user_id=user.id,
-            org_id=get_user_org(db, user).id,
+            user_id=ctx.user.id,
+            org_id=ctx.org.id,
             bot_token_secret=encrypt_secret(payload.bot_token),
             chat_id=payload.chat_id,
             alert_scopes=payload.alert_scopes,
@@ -59,8 +59,10 @@ def connect(
 
 
 @router.post("/test", response_model=TelegramTestResponse)
-async def test(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> TelegramTestResponse:
-    integration = db.scalar(select(TelegramIntegration).where(TelegramIntegration.user_id == user.id))
+async def test(
+    ctx: OrgContext = Depends(require_role("admin")), db: Session = Depends(get_db)
+) -> TelegramTestResponse:
+    integration = db.scalar(select(TelegramIntegration).where(TelegramIntegration.org_id == ctx.org.id))
     if not integration:
         return TelegramTestResponse(ok=False, detail="Telegram is not connected")
     ok = await send_telegram_message(

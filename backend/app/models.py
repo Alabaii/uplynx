@@ -114,8 +114,7 @@ class ConfigVersion(Base):
 class TelegramIntegration(Base):
     __tablename__ = "telegram_integrations"
     __table_args__ = (
-        UniqueConstraint("user_id", name="uq_telegram_user"),
-        Index("ix_telegram_integrations_org_id", "org_id"),
+        Index("ix_telegram_integrations_org_id", "org_id", unique=True),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

@@ -6,7 +6,7 @@ from app.api.deps import OrgContext, get_current_org_member
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import create_access_token, hash_password, verify_password
-from app.models import User
+from app.models import OrgMember, User
 from app.schemas import MeRead, Token, UserCreate, UserLogin, UserOrganizationRead, UserRead
 from app.services.orgs import ensure_membership, get_or_create_default_org
 
@@ -40,7 +40,12 @@ def login(payload: UserLogin, db: Session = Depends(get_db)) -> Token:
     user = db.scalar(select(User).where(User.email == payload.email.lower()))
     if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-    return Token(access_token=create_access_token(str(user.id)))
+    # активная организация = единственное/первое членство
+    org_id = db.scalar(
+        select(OrgMember.org_id).where(OrgMember.user_id == user.id).order_by(OrgMember.id).limit(1)
+    )
+    extra_claims = {"org_id": org_id} if org_id is not None else None
+    return Token(access_token=create_access_token(str(user.id), extra_claims=extra_claims))
 
 
 @router.get("/me", response_model=MeRead)

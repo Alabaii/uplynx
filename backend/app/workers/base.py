@@ -29,7 +29,7 @@ async def send_status_alert(monitor: Monitor, check_result: CheckResult, previou
         return
     with SessionLocal() as db:
         integration = db.scalar(
-            select(TelegramIntegration).where(TelegramIntegration.user_id == monitor.user_id)
+            select(TelegramIntegration).where(TelegramIntegration.org_id == monitor.org_id)
         )
     if not integration or scope not in (integration.alert_scopes or []):
         return

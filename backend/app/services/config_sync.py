@@ -9,9 +9,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models import ConfigVersion, Monitor, User
+from app.models import ConfigVersion, Monitor, Organization, User
 from app.schemas import ConfigDocument, ConfigMonitor, MonitorCreate, MonitorUpdate
-from app.services.orgs import get_user_org
 
 
 def parse_config(content: str, fmt: str) -> ConfigDocument:
@@ -34,18 +33,17 @@ def dump_config(document: ConfigDocument, fmt: str = "yaml") -> str:
     return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
 
 
-def latest_config_version(db: Session, user_id: int) -> ConfigVersion | None:
+def latest_config_version(db: Session, org_id: int) -> ConfigVersion | None:
     return db.scalar(
         select(ConfigVersion)
-        .where(ConfigVersion.user_id == user_id)
+        .where(ConfigVersion.org_id == org_id)
         .order_by(ConfigVersion.version.desc())
         .limit(1)
     )
 
 
-def create_config_version(db: Session, user: User, content: str, fmt: str) -> ConfigVersion:
-    org = get_user_org(db, user)
-    current = db.scalar(select(func.max(ConfigVersion.version)).where(ConfigVersion.user_id == user.id)) or 0
+def create_config_version(db: Session, user: User, org: Organization, content: str, fmt: str) -> ConfigVersion:
+    current = db.scalar(select(func.max(ConfigVersion.version)).where(ConfigVersion.org_id == org.id)) or 0
     version = ConfigVersion(user_id=user.id, org_id=org.id, version=current + 1, content=content, format=fmt)
     db.add(version)
     db.flush()
@@ -66,17 +64,17 @@ def monitor_to_config(monitor: Monitor) -> ConfigMonitor:
     )
 
 
-def build_config_from_db(db: Session, user: User) -> ConfigDocument:
-    monitors = db.scalars(select(Monitor).where(Monitor.user_id == user.id).order_by(Monitor.slug)).all()
+def build_config_from_db(db: Session, org: Organization) -> ConfigDocument:
+    monitors = db.scalars(select(Monitor).where(Monitor.org_id == org.id).order_by(Monitor.slug)).all()
     return ConfigDocument(version=1, monitors=[monitor_to_config(m) for m in monitors])
 
 
-def enforce_monitor_limit(db: Session, user: User, new_enabled_count: int) -> None:
+def enforce_monitor_limit(db: Session, org: Organization, new_enabled_count: int) -> None:
     settings = get_settings()
     if settings.deployment_mode != "team":
         return
     others = db.scalar(
-        select(func.count()).select_from(Monitor).where(Monitor.enabled.is_(True), Monitor.user_id != user.id)
+        select(func.count()).select_from(Monitor).where(Monitor.enabled.is_(True), Monitor.org_id != org.id)
     ) or 0
     if others + new_enabled_count > settings.team_max_monitors:
         raise HTTPException(
@@ -85,9 +83,8 @@ def enforce_monitor_limit(db: Session, user: User, new_enabled_count: int) -> No
         )
 
 
-def resync_monitors(db: Session, user: User, document: ConfigDocument) -> None:
-    org = get_user_org(db, user)
-    existing = {m.slug: m for m in db.scalars(select(Monitor).where(Monitor.user_id == user.id)).all()}
+def resync_monitors(db: Session, user: User, org: Organization, document: ConfigDocument) -> None:
+    existing = {m.slug: m for m in db.scalars(select(Monitor).where(Monitor.org_id == org.id)).all()}
     incoming = {m.id: m for m in document.monitors}
     now = datetime.now(timezone.utc)
 
@@ -127,49 +124,49 @@ def resync_monitors(db: Session, user: User, document: ConfigDocument) -> None:
             monitor.next_run_at = None
 
 
-def upload_config(db: Session, user: User, content: str, fmt: str) -> ConfigVersion:
+def upload_config(db: Session, user: User, org: Organization, content: str, fmt: str) -> ConfigVersion:
     document = parse_config(content, fmt)
-    enforce_monitor_limit(db, user, sum(1 for m in document.monitors if m.enabled))
-    version = create_config_version(db, user, content, fmt)
-    resync_monitors(db, user, document)
+    enforce_monitor_limit(db, org, sum(1 for m in document.monitors if m.enabled))
+    version = create_config_version(db, user, org, content, fmt)
+    resync_monitors(db, user, org, document)
     db.commit()
     db.refresh(version)
     return version
 
 
-def rollback_config(db: Session, user: User, version_number: int) -> ConfigVersion:
+def rollback_config(db: Session, user: User, org: Organization, version_number: int) -> ConfigVersion:
     target = db.scalar(
         select(ConfigVersion).where(
-            ConfigVersion.user_id == user.id,
+            ConfigVersion.org_id == org.id,
             ConfigVersion.version == version_number,
         )
     )
     if not target:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Config version not found")
-    return upload_config(db, user, target.content, target.format)
+    return upload_config(db, user, org, target.content, target.format)
 
 
-def persist_monitors_as_config(db: Session, user: User, fmt: str = "yaml") -> ConfigVersion:
-    document = build_config_from_db(db, user)
+def persist_monitors_as_config(db: Session, user: User, org: Organization, fmt: str = "yaml") -> ConfigVersion:
+    document = build_config_from_db(db, org)
     content = dump_config(document, fmt)
-    version = create_config_version(db, user, content, fmt)
+    version = create_config_version(db, user, org, content, fmt)
     db.commit()
     db.refresh(version)
     return version
 
 
-def create_monitor_from_payload(db: Session, user: User, payload: MonitorCreate) -> Monitor:
-    if db.scalar(select(Monitor).where(Monitor.user_id == user.id, Monitor.slug == payload.id)):
+def create_monitor_from_payload(db: Session, user: User, org: Organization, payload: MonitorCreate) -> Monitor:
+    if db.scalar(select(Monitor).where(Monitor.org_id == org.id, Monitor.slug == payload.id)):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Monitor already exists")
     if payload.enabled:
-        own_enabled = db.scalar(
-            select(func.count()).select_from(Monitor).where(Monitor.enabled.is_(True), Monitor.user_id == user.id)
+        org_enabled = db.scalar(
+            select(func.count()).select_from(Monitor).where(Monitor.enabled.is_(True), Monitor.org_id == org.id)
         ) or 0
-        enforce_monitor_limit(db, user, own_enabled + 1)
+        enforce_monitor_limit(db, org, org_enabled + 1)
     config_json = payload.model_dump(exclude={"id", "name", "type", "url", "interval", "enabled"}, exclude_none=True)
     monitor = Monitor(
         user_id=user.id,
-        org_id=get_user_org(db, user).id,
+        org_id=org.id,
         slug=payload.id,
         name=payload.name or payload.id,
         type=payload.type,
@@ -182,12 +179,12 @@ def create_monitor_from_payload(db: Session, user: User, payload: MonitorCreate)
     )
     db.add(monitor)
     db.flush()
-    persist_monitors_as_config(db, user)
+    persist_monitors_as_config(db, user, org)
     db.refresh(monitor)
     return monitor
 
 
-def update_monitor_from_payload(db: Session, user: User, monitor: Monitor, payload: MonitorUpdate) -> Monitor:
+def update_monitor_from_payload(db: Session, user: User, org: Organization, monitor: Monitor, payload: MonitorUpdate) -> Monitor:
     data = payload.model_dump(exclude_unset=True)
     config = dict(monitor.config_json or {})
     for field in ["name", "url", "interval", "enabled", "status"]:
@@ -204,6 +201,6 @@ def update_monitor_from_payload(db: Session, user: User, monitor: Monitor, paylo
         monitor.status = "paused"
         monitor.next_run_at = None
     db.flush()
-    persist_monitors_as_config(db, user)
+    persist_monitors_as_config(db, user, org)
     db.refresh(monitor)
     return monitor
