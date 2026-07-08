@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import {
   Activity,
-  BellRing,
   FileCode2,
   LayoutDashboard,
   LogOut,
@@ -10,9 +9,9 @@ import {
   Send,
   Smartphone,
 } from 'lucide-react';
-import { clearSession } from '../auth';
+import { clearSession, getSessionEmail } from '../auth';
 import { OfflineBanner } from '../components/OfflineBanner';
-import { getActiveGroup, getCurrentUser } from '../data/mockMonitoring';
+import { getMe } from '../api';
 import { usePWA } from '../pwa/usePWA';
 import { cn } from '../utils/cn';
 
@@ -26,10 +25,29 @@ const navigation = [
 export function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const user = getCurrentUser();
-  const activeGroup = getActiveGroup();
   const { isInstalled } = usePWA();
   const [isOffline, setIsOffline] = useState(() => typeof navigator !== 'undefined' && !navigator.onLine);
+  const [email, setEmail] = useState(() => getSessionEmail() ?? '');
+  const [orgName, setOrgName] = useState('My team');
+
+  useEffect(() => {
+    let ignore = false;
+
+    getMe()
+      .then((user) => {
+        if (!ignore) {
+          setEmail(user.email);
+          setOrgName(user.organization?.name ?? 'My team');
+        }
+      })
+      .catch(() => {
+        // Keep the session email fallback when /auth/me is unavailable.
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   useEffect(() => {
     const onOnline = () => setIsOffline(false);
@@ -54,46 +72,41 @@ export function AppLayout() {
   );
 
   return (
-    <div className="min-h-screen bg-[linear-gradient(180deg,_#f4f7f6_0%,_#eef3f0_42%,_#f8fafc_100%)]">
+    <div className="min-h-screen bg-background">
       {isOffline && <OfflineBanner />}
 
       <div className="mx-auto flex min-h-screen max-w-[1600px]">
-        <aside className="sticky top-0 hidden h-screen w-80 shrink-0 border-r border-white/70 bg-slate-950 px-6 py-6 text-slate-100 lg:flex lg:flex-col">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-500/15 text-teal-300">
+        <aside className="sticky top-0 hidden h-screen w-72 shrink-0 bg-card px-4 py-6 shadow-card lg:flex lg:flex-col">
+          <div className="flex items-center gap-3 px-2">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent text-primary">
               <Activity className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-teal-300/80">Monitoring ops</p>
-              <p className="text-xl font-semibold tracking-tight text-white">Uplynx Console</p>
+              <p className="text-lg font-semibold text-foreground">Uplynx Console</p>
+              <p className="text-xs text-placeholder">Monitoring ops</p>
             </div>
           </div>
 
-          <div className="mt-8 rounded-[1.5rem] border border-white/10 bg-white/5 p-4">
-            <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Active workspace</p>
-            <p className="mt-2 text-lg font-semibold text-white">{activeGroup.name}</p>
-            <p className="mt-1 text-sm text-slate-300">{user.email}</p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-300">
-                {activeGroup.role}
-              </span>
-              <span className="rounded-full bg-cyan-500/15 px-3 py-1 text-xs font-semibold text-cyan-300">
+          <div className="mt-6 rounded-lg bg-secondary p-4">
+            <p className="text-xs text-placeholder">Active workspace</p>
+            <p className="mt-1 text-sm font-semibold text-foreground">{orgName}</p>
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">{email || 'Signed in'}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className="rounded-lg bg-accent px-2.5 py-1 text-xs font-semibold text-primary">
                 {isInstalled ? 'PWA installed' : 'Browser mode'}
               </span>
             </div>
           </div>
 
-          <nav className="mt-8 space-y-2">
+          <nav className="mt-6 space-y-1">
             {navigation.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
                 className={({ isActive }) =>
                   cn(
-                    'flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition-colors',
-                    isActive
-                      ? 'bg-white text-slate-950 shadow-[0_10px_30px_rgba(15,23,42,0.25)]'
-                      : 'text-slate-300 hover:bg-white/8 hover:text-white'
+                    'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                    isActive ? 'bg-accent text-primary' : 'text-foreground hover:text-primary'
                   )
                 }
               >
@@ -103,20 +116,10 @@ export function AppLayout() {
             ))}
           </nav>
 
-          <div className="mt-auto rounded-[1.5rem] border border-amber-400/20 bg-amber-500/10 p-4 text-sm text-amber-100">
-            <div className="flex items-center gap-2 font-semibold">
-              <BellRing className="h-4 w-4" />
-              Environment status
-            </div>
-            <p className="mt-2 leading-6 text-amber-50/90">
-              Mock backend absent. UI is running against local contracts only, so actions validate product flow instead of persistence.
-            </p>
-          </div>
-
           <button
             type="button"
             onClick={handleLogout}
-            className="mt-4 flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium text-slate-300 transition-colors hover:bg-rose-500/10 hover:text-rose-200"
+            className="mt-auto flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:text-destructive"
           >
             <LogOut className="h-5 w-5" />
             Sign out
@@ -124,13 +127,10 @@ export function AppLayout() {
         </aside>
 
         <main className="flex min-h-screen min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-40 border-b border-white/70 bg-white/80 px-4 py-4 backdrop-blur md:px-6">
-            <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
+          <header className="sticky top-0 z-40 h-[60px] border-b border-border bg-background px-4 md:px-6">
+            <div className="mx-auto flex h-full max-w-7xl items-center justify-between gap-4">
               <div className="min-w-0">
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-teal-700">
-                  {currentSection?.label ?? 'Workspace'}
-                </p>
-                <h1 className="truncate text-lg font-semibold text-slate-950 md:text-xl">
+                <h1 className="truncate text-lg font-semibold leading-6 text-foreground">
                   {currentSection?.label === 'Dashboard'
                     ? 'Fleet overview'
                     : currentSection?.label ?? 'Monitoring workspace'}
@@ -138,12 +138,18 @@ export function AppLayout() {
               </div>
 
               <div className="flex items-center gap-3">
-                <div className="hidden rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600 md:flex md:items-center md:gap-2">
-                  <Smartphone className="h-3.5 w-3.5 text-teal-700" />
+                <div className="hidden rounded-lg bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-card md:flex md:items-center md:gap-2">
+                  <Smartphone className="h-3.5 w-3.5 text-primary" />
                   {isInstalled ? 'Installed PWA' : 'Install available'}
                 </div>
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-teal-900 text-sm font-semibold text-white">
-                  {user.initials}
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-border text-sm font-semibold text-muted-foreground">
+                    {(email[0] ?? '?').toUpperCase()}
+                  </div>
+                  <div className="hidden min-w-0 md:block">
+                    <p className="max-w-[14rem] truncate text-sm leading-5 text-foreground">{email || 'Operator'}</p>
+                    <p className="text-xs leading-4 text-placeholder">{orgName}</p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -155,7 +161,7 @@ export function AppLayout() {
         </main>
       </div>
 
-      <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] pt-2 shadow-[0_-12px_40px_rgba(15,23,42,0.08)] backdrop-blur lg:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-border bg-card px-2 pb-[env(safe-area-inset-bottom)] pt-2 shadow-bottom-sheet lg:hidden">
         <div className="grid grid-cols-4 gap-1">
           {navigation.map((item) => (
             <NavLink
@@ -163,8 +169,8 @@ export function AppLayout() {
               to={item.to}
               className={({ isActive }) =>
                 cn(
-                  'flex min-h-14 flex-col items-center justify-center rounded-2xl gap-1 text-[11px] font-semibold transition-colors',
-                  isActive ? 'bg-teal-900 text-white' : 'text-slate-500'
+                  'flex min-h-14 flex-col items-center justify-center rounded-lg gap-1 text-[11px] font-semibold transition-colors',
+                  isActive ? 'bg-accent text-primary' : 'text-placeholder'
                 )
               }
             >

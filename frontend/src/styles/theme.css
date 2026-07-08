@@ -2,43 +2,82 @@
 
 :root {
   --font-size: 16px;
-  --background: #f4f7f6;
-  --foreground: oklch(0.145 0 0);
-  --card: #ffffff;
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: #134e4a;
-  --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.95 0.0058 264.53);
-  --secondary-foreground: #030213;
-  --muted: #ececf0;
-  --muted-foreground: #717182;
-  --accent: #e9ebef;
-  --accent-foreground: #030213;
-  --destructive: #d4183d;
+
+  /* Базовые поверхности */
+  --background: #f5f5f5; /* Grey 01 — фон приложения */
+  --foreground: #2c2d2e; /* Black — основной текст */
+
+  --card: #ffffff; /* White — карточки */
+  --card-foreground: #2c2d2e;
+
+  --popover: #ffffff;
+  --popover-foreground: #2c2d2e;
+
+  /* Акцент */
+  --primary: #00ac86; /* Accent */
+  --primary-foreground: #ffffff;
+  --primary-hover: #009b79; /* Accent dark — hover primary-кнопок */
+
+  --secondary: #f5f5f5; /* Grey 01 — secondary-кнопки */
+  --secondary-foreground: #00ac86;
+
+  --muted: #f5f5f5;
+  --muted-foreground: #787f86; /* Grey 04 — вторичный текст, лейблы */
+
+  --accent: #e6f7f3; /* Accent 10% — hover/active подложки */
+  --accent-foreground: #009b79;
+
+  /* Ошибки и статусы */
+  --destructive: #e0362d; /* красный ошибок форм */
   --destructive-foreground: #ffffff;
-  --border: rgba(0, 0, 0, 0.1);
-  --input: transparent;
-  --input-background: #f3f3f5;
-  --switch-background: #cbced4;
+
+  --status-up: #00ac86; /* Accent */
+  --status-down: #f26f75; /* Red (палитра) */
+  --status-degraded: #edc45a; /* Yellow */
+  --status-pending: #969fa8; /* Grey 03 */
+
+  /* Границы и инпуты */
+  --border: #e7e7e7; /* Grey 02 */
+  --input: #e7e7e7; /* граница инпутов */
+  --input-background: #ffffff;
+  --input-border-hover: #969fa8; /* Grey 03 — hover/focus граница */
+  --placeholder: #969fa8; /* Grey 03 */
+  --switch-background: #e7e7e7;
+
+  --ring: #00ac86; /* focus ring = акцент */
+
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: #030213;
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+
+  /* Геометрия */
+  --radius: 0.5rem; /* 8px — кнопки, инпуты, карточки, фильтры */
+
+  /* Тени */
+  --shadow-card: 0px 2px 24px 0px rgba(0, 0, 0, 0.08); /* shadow 01 */
+  --shadow-bottom-sheet: 0px -4px 10px 0px rgba(0, 0, 0, 0.05); /* shadow 02 */
+  --shadow-floating: 0px 4px 16px 0px rgba(0, 0, 0, 0.12); /* shadow 03 */
+  --shadow-dropdown: 0px 4px 24px 0px rgba(0, 0, 0, 0.06);
+  --shadow-calendar: 0px 8px 20px 0px rgba(0, 0, 0, 0.1);
+
+  /* Типографика */
+  --font-sans: 'Open Sans', system-ui, -apple-system, sans-serif;
+
+  /* Графики */
+  --chart-1: #00ac86; /* Accent */
+  --chart-2: #f26f75; /* Red */
+  --chart-3: #edc45a; /* Yellow */
+  --chart-4: #969fa8; /* Grey 03 */
+  --chart-5: #009b79; /* Accent dark */
+
+  /* Сайдбар */
+  --sidebar: #ffffff;
+  --sidebar-foreground: #2c2d2e;
+  --sidebar-primary: #00ac86;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e6f7f3;
+  --sidebar-accent-foreground: #00ac86;
+  --sidebar-border: #e7e7e7;
+  --sidebar-ring: #00ac86;
 }
 
 .dark {
@@ -79,6 +118,7 @@
 }
 
 @theme inline {
+  --font-sans: var(--font-sans);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -87,6 +127,7 @@
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
@@ -95,9 +136,15 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-status-up: var(--status-up);
+  --color-status-down: var(--status-down);
+  --color-status-degraded: var(--status-degraded);
+  --color-status-pending: var(--status-pending);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-input-background: var(--input-background);
+  --color-input-border-hover: var(--input-border-hover);
+  --color-placeholder: var(--placeholder);
   --color-switch-background: var(--switch-background);
   --color-ring: var(--ring);
   --color-chart-1: var(--chart-1);
@@ -109,6 +156,11 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --shadow-card: var(--shadow-card);
+  --shadow-bottom-sheet: var(--shadow-bottom-sheet);
+  --shadow-floating: var(--shadow-floating);
+  --shadow-dropdown: var(--shadow-dropdown);
+  --shadow-calendar: var(--shadow-calendar);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -126,7 +178,10 @@
 
   body {
     @apply bg-background text-foreground;
-    font-feature-settings: "ss01" 1, "cv11" 1;
+    font-family: var(--font-sans);
+    /* text 02 — базовый текст 14px/20px */
+    font-size: 0.875rem;
+    line-height: 1.25rem;
     -webkit-font-smoothing: antialiased;
   }
 
@@ -140,44 +195,51 @@
   }
 
   h1 {
-    font-size: var(--text-2xl);
-    font-weight: var(--font-weight-medium);
-    line-height: 1.5;
+    /* h1 — 24/32 SemiBold */
+    font-size: 1.5rem;
+    font-weight: 600;
+    line-height: 2rem;
   }
 
   h2 {
-    font-size: var(--text-xl);
-    font-weight: var(--font-weight-medium);
-    line-height: 1.5;
+    /* h2 — 18/24 SemiBold */
+    font-size: 1.125rem;
+    font-weight: 600;
+    line-height: 1.5rem;
   }
 
   h3 {
-    font-size: var(--text-lg);
-    font-weight: var(--font-weight-medium);
-    line-height: 1.5;
+    /* h3 — 16/24 Medium */
+    font-size: 1rem;
+    font-weight: 500;
+    line-height: 1.5rem;
   }
 
   h4 {
-    font-size: var(--text-base);
-    font-weight: var(--font-weight-medium);
-    line-height: 1.5;
+    /* h4 — 14/20 SemiBold */
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.25rem;
   }
 
   label {
-    font-size: var(--text-base);
-    font-weight: var(--font-weight-medium);
-    line-height: 1.5;
+    /* text 02 — 14/20 */
+    font-size: 0.875rem;
+    font-weight: var(--font-weight-normal);
+    line-height: 1.25rem;
   }
 
   button {
-    font-size: var(--text-base);
+    /* button small — 14/20 Medium */
+    font-size: 0.875rem;
     font-weight: var(--font-weight-medium);
-    line-height: 1.5;
+    line-height: 1.25rem;
   }
 
   input {
-    font-size: var(--text-base);
+    /* reg input — 14/20 */
+    font-size: 0.875rem;
     font-weight: var(--font-weight-normal);
-    line-height: 1.5;
+    line-height: 1.25rem;
   }
 }

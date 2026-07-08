@@ -12,7 +12,7 @@ const ConfigEditor = React.lazy(() => import('./pages/ConfigEditor'));
 const TelegramSettings = React.lazy(() => import('./pages/Telegram'));
 
 const PageLoader = () => (
-  <div className="flex min-h-[16rem] items-center justify-center rounded-[1.5rem] border border-slate-200 bg-white text-sm text-slate-500 shadow-sm">
+  <div className="flex min-h-[16rem] items-center justify-center rounded-lg bg-card text-sm text-placeholder shadow-card">
     Loading workspace...
   </div>
 );

@@ -1,0 +1,209 @@
+import json
+from datetime import datetime, timezone
+from typing import Any
+
+import yaml
+from fastapi import HTTPException, status
+from pydantic import ValidationError
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from app.core.config import get_settings
+from app.models import ConfigVersion, Monitor, User
+from app.schemas import ConfigDocument, ConfigMonitor, MonitorCreate, MonitorUpdate
+from app.services.orgs import get_user_org
+
+
+def parse_config(content: str, fmt: str) -> ConfigDocument:
+    try:
+        raw: Any = json.loads(content) if fmt == "json" else yaml.safe_load(content)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid {fmt}: {exc}") from exc
+    if raw is None:
+        raw = {}
+    try:
+        return ConfigDocument.model_validate(raw)
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.errors()) from exc
+
+
+def dump_config(document: ConfigDocument, fmt: str = "yaml") -> str:
+    data = document.model_dump(exclude_none=True)
+    if fmt == "json":
+        return json.dumps(data, indent=2, ensure_ascii=False)
+    return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
+
+
+def latest_config_version(db: Session, user_id: int) -> ConfigVersion | None:
+    return db.scalar(
+        select(ConfigVersion)
+        .where(ConfigVersion.user_id == user_id)
+        .order_by(ConfigVersion.version.desc())
+        .limit(1)
+    )
+
+
+def create_config_version(db: Session, user: User, content: str, fmt: str) -> ConfigVersion:
+    org = get_user_org(db, user)
+    current = db.scalar(select(func.max(ConfigVersion.version)).where(ConfigVersion.user_id == user.id)) or 0
+    version = ConfigVersion(user_id=user.id, org_id=org.id, version=current + 1, content=content, format=fmt)
+    db.add(version)
+    db.flush()
+    return version
+
+
+def monitor_to_config(monitor: Monitor) -> ConfigMonitor:
+    data = dict(monitor.config_json or {})
+    return ConfigMonitor(
+        id=monitor.slug,
+        name=monitor.name,
+        type=monitor.type,  # type: ignore[arg-type]
+        url=monitor.url,
+        interval=monitor.interval,
+        expected=data.get("expected"),
+        steps=data.get("steps"),
+        enabled=monitor.enabled,
+    )
+
+
+def build_config_from_db(db: Session, user: User) -> ConfigDocument:
+    monitors = db.scalars(select(Monitor).where(Monitor.user_id == user.id).order_by(Monitor.slug)).all()
+    return ConfigDocument(version=1, monitors=[monitor_to_config(m) for m in monitors])
+
+
+def enforce_monitor_limit(db: Session, user: User, new_enabled_count: int) -> None:
+    settings = get_settings()
+    if settings.deployment_mode != "team":
+        return
+    others = db.scalar(
+        select(func.count()).select_from(Monitor).where(Monitor.enabled.is_(True), Monitor.user_id != user.id)
+    ) or 0
+    if others + new_enabled_count > settings.team_max_monitors:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Monitor limit reached: team deployment allows at most {settings.team_max_monitors} enabled monitors",
+        )
+
+
+def resync_monitors(db: Session, user: User, document: ConfigDocument) -> None:
+    org = get_user_org(db, user)
+    existing = {m.slug: m for m in db.scalars(select(Monitor).where(Monitor.user_id == user.id)).all()}
+    incoming = {m.id: m for m in document.monitors}
+    now = datetime.now(timezone.utc)
+
+    for slug, cfg in incoming.items():
+        config_json = cfg.model_dump(exclude={"id", "name", "type", "url", "interval", "enabled"}, exclude_none=True)
+        monitor = existing.get(slug)
+        if monitor:
+            monitor.name = cfg.name or slug
+            monitor.type = cfg.type
+            monitor.url = cfg.url
+            monitor.interval = cfg.interval
+            monitor.config_json = config_json
+            monitor.enabled = cfg.enabled
+            monitor.status = monitor.status if cfg.enabled else "paused"
+            monitor.next_run_at = now if cfg.enabled else None
+        else:
+            db.add(
+                Monitor(
+                    user_id=user.id,
+                    org_id=org.id,
+                    slug=slug,
+                    name=cfg.name or slug,
+                    type=cfg.type,
+                    status="paused" if not cfg.enabled else "pending",
+                    url=cfg.url,
+                    interval=cfg.interval,
+                    config_json=config_json,
+                    enabled=cfg.enabled,
+                    next_run_at=now if cfg.enabled else None,
+                )
+            )
+
+    for slug, monitor in existing.items():
+        if slug not in incoming:
+            monitor.enabled = False
+            monitor.status = "paused"
+            monitor.next_run_at = None
+
+
+def upload_config(db: Session, user: User, content: str, fmt: str) -> ConfigVersion:
+    document = parse_config(content, fmt)
+    enforce_monitor_limit(db, user, sum(1 for m in document.monitors if m.enabled))
+    version = create_config_version(db, user, content, fmt)
+    resync_monitors(db, user, document)
+    db.commit()
+    db.refresh(version)
+    return version
+
+
+def rollback_config(db: Session, user: User, version_number: int) -> ConfigVersion:
+    target = db.scalar(
+        select(ConfigVersion).where(
+            ConfigVersion.user_id == user.id,
+            ConfigVersion.version == version_number,
+        )
+    )
+    if not target:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Config version not found")
+    return upload_config(db, user, target.content, target.format)
+
+
+def persist_monitors_as_config(db: Session, user: User, fmt: str = "yaml") -> ConfigVersion:
+    document = build_config_from_db(db, user)
+    content = dump_config(document, fmt)
+    version = create_config_version(db, user, content, fmt)
+    db.commit()
+    db.refresh(version)
+    return version
+
+
+def create_monitor_from_payload(db: Session, user: User, payload: MonitorCreate) -> Monitor:
+    if db.scalar(select(Monitor).where(Monitor.user_id == user.id, Monitor.slug == payload.id)):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Monitor already exists")
+    if payload.enabled:
+        own_enabled = db.scalar(
+            select(func.count()).select_from(Monitor).where(Monitor.enabled.is_(True), Monitor.user_id == user.id)
+        ) or 0
+        enforce_monitor_limit(db, user, own_enabled + 1)
+    config_json = payload.model_dump(exclude={"id", "name", "type", "url", "interval", "enabled"}, exclude_none=True)
+    monitor = Monitor(
+        user_id=user.id,
+        org_id=get_user_org(db, user).id,
+        slug=payload.id,
+        name=payload.name or payload.id,
+        type=payload.type,
+        status="pending" if payload.enabled else "paused",
+        url=payload.url,
+        interval=payload.interval,
+        config_json=config_json,
+        enabled=payload.enabled,
+        next_run_at=datetime.now(timezone.utc) if payload.enabled else None,
+    )
+    db.add(monitor)
+    db.flush()
+    persist_monitors_as_config(db, user)
+    db.refresh(monitor)
+    return monitor
+
+
+def update_monitor_from_payload(db: Session, user: User, monitor: Monitor, payload: MonitorUpdate) -> Monitor:
+    data = payload.model_dump(exclude_unset=True)
+    config = dict(monitor.config_json or {})
+    for field in ["name", "url", "interval", "enabled", "status"]:
+        if field in data:
+            setattr(monitor, field, data[field])
+    if "expected" in data:
+        config["expected"] = data["expected"]
+    if "steps" in data:
+        config["steps"] = data["steps"]
+    monitor.config_json = config
+    if monitor.enabled and monitor.next_run_at is None:
+        monitor.next_run_at = datetime.now(timezone.utc)
+    if not monitor.enabled:
+        monitor.status = "paused"
+        monitor.next_run_at = None
+    db.flush()
+    persist_monitors_as_config(db, user)
+    db.refresh(monitor)
+    return monitor

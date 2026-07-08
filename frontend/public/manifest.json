@@ -5,10 +5,13 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "display_override": ["standalone", "minimal-ui"],
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
   "orientation": "portrait",
-  "background_color": "#f4f7f6",
-  "theme_color": "#0f4c4c",
+  "background_color": "#F5F5F5",
+  "theme_color": "#00AC86",
   "icons": [
     {
       "src": "/favicon-64x64.png",

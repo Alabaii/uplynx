@@ -1,0 +1,66 @@
+import pytest
+
+from app.schemas import CheckTask
+from app.services.alerting import alert_scope_for_result
+from app.services.config_sync import parse_config
+from app.services.queue import deserialize_task, queue_for_type, serialize_task
+
+
+def test_config_validator_enums():
+    doc = parse_config(
+        """
+version: 1
+monitors:
+  - id: login
+    type: browser
+    interval: 300
+    steps:
+      - action: goto
+        url: https://example.com
+      - action: assert_text
+        text: Dashboard
+""",
+        "yaml",
+    )
+    assert doc.monitors[0].type == "browser"
+    with pytest.raises(Exception):
+        parse_config("version: 1\nmonitors:\n- id: bad\n  type: ftp\n  interval: 60\n", "yaml")
+
+
+def test_queue_routing_and_serialization():
+    task = CheckTask(
+        task_id="t1",
+        monitor_id=1,
+        type="http",
+        url="https://example.com",
+        config={},
+        timeout_seconds=30,
+        created_at="2026-01-01T00:00:00Z",
+        attempt=1,
+    )
+    assert queue_for_type("http") == "http_checks"
+    restored = deserialize_task(serialize_task(task))
+    assert restored.task_id == "t1"
+
+
+def test_alert_decisions():
+    assert alert_scope_for_result("up", "down") == "down"
+    assert alert_scope_for_result("down", "up") == "recovered"
+    assert alert_scope_for_result("up", "up") is None
+
+
+def test_validate_jwt_secret():
+    from app.core.config import Settings, validate_jwt_secret
+
+    with pytest.raises(RuntimeError):
+        validate_jwt_secret(Settings(environment="production", jwt_secret_key="change-me-in-production"))
+    validate_jwt_secret(Settings(environment="production", jwt_secret_key="a-strong-unique-secret"))
+    validate_jwt_secret(Settings(environment="development", jwt_secret_key="change-me-in-production"))
+
+
+def test_encrypt_decrypt_secret_round_trip():
+    from app.core.security import decrypt_secret, encrypt_secret
+
+    encrypted = encrypt_secret("123456:token")
+    assert encrypted != "123456:token"
+    assert decrypt_secret(encrypted) == "123456:token"

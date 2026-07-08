@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BellRing, Bot, CheckCircle2, Send, Smartphone, TriangleAlert } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
-import { getTelegramIntegration } from '../data/mockMonitoring';
+import { ApiError, connectTelegram, getTelegram, testTelegram } from '../api';
 import { cn } from '../utils/cn';
 
 const alertScopes = [
@@ -12,68 +12,132 @@ const alertScopes = [
   { id: 'recovered', label: 'Recovered', description: 'Follow-up signal when status returns to green' },
 ] as const;
 
-export default function TelegramSettings() {
-  const integration = getTelegramIntegration();
-  const [token, setToken] = useState('123456789:mock-demo-token');
-  const [chatId, setChatId] = useState(integration.chatId);
-  const [selectedAlerts, setSelectedAlerts] = useState(integration.alerts);
-  const [isTesting, setIsTesting] = useState(false);
-  const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
+type AlertScope = (typeof alertScopes)[number]['id'];
 
-  const toggleScope = (scope: (typeof alertScopes)[number]['id']) => {
+export default function TelegramSettings() {
+  const [connected, setConnected] = useState(false);
+  const [maskedToken, setMaskedToken] = useState('');
+  const [token, setToken] = useState('');
+  const [chatId, setChatId] = useState('');
+  const [selectedAlerts, setSelectedAlerts] = useState<AlertScope[]>(['down', 'recovered']);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const [message, setMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
+
+  useEffect(() => {
+    let ignore = false;
+
+    getTelegram()
+      .then((integration) => {
+        if (!ignore && integration.connected) {
+          setConnected(true);
+          setChatId(integration.chat_id ?? '');
+          setSelectedAlerts(integration.alert_scopes.filter((scope): scope is AlertScope =>
+            alertScopes.some((item) => item.id === scope)
+          ));
+          setMaskedToken(integration.bot_token_masked ?? '');
+        }
+      })
+      .catch(() => {
+        // No integration yet (or endpoint unavailable) - keep the empty form.
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  const toggleScope = (scope: AlertScope) => {
     setSelectedAlerts((current) =>
       current.includes(scope) ? current.filter((item) => item !== scope) : [...current, scope]
     );
   };
 
-  const handleTest = (event: React.FormEvent) => {
+  const handleSave = async (event: React.FormEvent) => {
     event.preventDefault();
-    setIsTesting(true);
-    setStatus('idle');
+    setIsSaving(true);
+    setMessage(null);
 
-    window.setTimeout(() => {
-      setStatus(token.length > 10 && chatId.length > 5 ? 'success' : 'error');
+    try {
+      const integration = await connectTelegram({ bot_token: token, chat_id: chatId, alert_scopes: selectedAlerts });
+      setConnected(true);
+      setChatId(integration.chat_id ?? chatId);
+      setToken('');
+      setMaskedToken(integration.bot_token_masked ?? '');
+      setMessage({ tone: 'success', text: 'Telegram settings saved.' });
+    } catch (error) {
+      setMessage({
+        tone: 'error',
+        text: error instanceof ApiError ? error.message : 'Unable to save Telegram settings.',
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleTest = async () => {
+    setIsTesting(true);
+    setMessage(null);
+
+    try {
+      const result = await testTelegram();
+      setMessage(
+        result.ok
+          ? { tone: 'success', text: 'Test alert sent. Check your Telegram chat.' }
+          : { tone: 'error', text: result.detail }
+      );
+    } catch (error) {
+      setMessage({
+        tone: 'error',
+        text: error instanceof ApiError ? error.message : 'Unable to send a test message.',
+      });
+    } finally {
       setIsTesting(false);
-    }, 900);
+    }
   };
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
+      <section className="rounded-lg bg-card p-6 shadow-card">
         <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">Telegram integration</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">Route incidents to operators</h1>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-              This prototype shows connection setup, alert scope control, and test message feedback. Real Bot API calls
-              can drop into the same UI later.
+            <p className="text-sm font-semibold text-primary">Telegram integration</p>
+            <h1 className="mt-2 text-2xl font-semibold leading-8 text-foreground">Route incidents to operators</h1>
+            <p className="mt-3 max-w-3xl text-sm leading-5 text-muted-foreground">
+              Connect a Telegram bot to receive alerts when monitors go down, degrade, or recover.
             </p>
           </div>
 
-          <div className="rounded-[1.5rem] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            Connected as {integration.botName}
-          </div>
+          {connected ? (
+            <div className="rounded-lg bg-accent px-4 py-3 text-sm text-accent-foreground">
+              Connected to chat {chatId || 'unknown'}
+            </div>
+          ) : (
+            <div className="rounded-lg bg-secondary px-4 py-3 text-sm text-muted-foreground">
+              Not connected yet
+            </div>
+          )}
         </div>
       </section>
 
       <div className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">
         <Card className="overflow-hidden">
-          <CardHeader className="border-b border-slate-200 bg-slate-50/80">
-            <CardTitle className="flex items-center gap-2 text-xl">
-              <Send className="h-5 w-5 text-teal-700" />
+          <CardHeader className="border-b border-border">
+            <CardTitle className="flex items-center gap-2">
+              <Send className="h-5 w-5 text-primary" />
               Configure bot
             </CardTitle>
           </CardHeader>
 
           <CardContent className="p-6">
-            <form onSubmit={handleTest} className="space-y-6">
+            <form onSubmit={handleSave} className="space-y-6">
               <div className="grid gap-4">
                 <Input
                   label="Bot token"
                   type="password"
                   value={token}
                   onChange={(event) => setToken(event.target.value)}
-                  placeholder="123456789:AA..."
+                  placeholder={maskedToken || '123456789:AA...'}
                   required
                 />
                 <Input
@@ -86,7 +150,7 @@ export default function TelegramSettings() {
               </div>
 
               <div className="space-y-3">
-                <p className="text-sm font-semibold text-slate-900">Alert scope</p>
+                <p className="text-sm font-semibold text-foreground">Alert scope</p>
                 <div className="grid gap-3 md:grid-cols-3">
                   {alertScopes.map((scope) => {
                     const active = selectedAlerts.includes(scope.id);
@@ -97,39 +161,47 @@ export default function TelegramSettings() {
                         type="button"
                         onClick={() => toggleScope(scope.id)}
                         className={cn(
-                          'rounded-[1.25rem] border p-4 text-left transition-colors',
-                          active ? 'border-teal-200 bg-teal-50' : 'border-slate-200 bg-white hover:border-slate-300'
+                          'rounded-lg border p-4 text-left transition-colors',
+                          active ? 'border-transparent bg-accent' : 'border-border bg-card hover:border-input-border-hover'
                         )}
                       >
                         <div className="flex items-center justify-between gap-3">
-                          <p className="font-semibold text-slate-900">{scope.label}</p>
-                          {active && <CheckCircle2 className="h-4 w-4 text-teal-700" />}
+                          <p className="font-semibold text-foreground">{scope.label}</p>
+                          {active && <CheckCircle2 className="h-4 w-4 text-primary" />}
                         </div>
-                        <p className="mt-2 text-sm leading-6 text-slate-600">{scope.description}</p>
+                        <p className="mt-2 text-sm leading-5 text-muted-foreground">{scope.description}</p>
                       </button>
                     );
                   })}
                 </div>
               </div>
 
-              {status === 'success' && (
-                <div className="rounded-[1.5rem] border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-                  Test alert sent. In the real integration, this would confirm the bot token and chat permissions.
-                </div>
-              )}
-              {status === 'error' && (
-                <div className="rounded-[1.5rem] border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-                  Validation failed. Check your mock token length and chat ID format.
+              {message && (
+                <div
+                  className={cn(
+                    'rounded-lg p-4 text-sm',
+                    message.tone === 'success'
+                      ? 'bg-accent text-accent-foreground'
+                      : 'bg-destructive/10 text-destructive'
+                  )}
+                >
+                  {message.text}
                 </div>
               )}
 
-              <div className="flex flex-col gap-3 border-t border-slate-200 pt-5 sm:flex-row sm:justify-end">
-                <Button type="button" variant="ghost">
-                  Save draft
-                </Button>
-                <Button type="submit" className="gap-2 bg-teal-900 hover:bg-teal-800" isLoading={isTesting}>
-                  <Send className="h-4 w-4" />
+              <div className="flex flex-col gap-3 border-t border-border pt-5 sm:flex-row sm:justify-end">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={handleTest}
+                  isLoading={isTesting}
+                  disabled={!connected}
+                >
                   Test connection
+                </Button>
+                <Button type="submit" isLoading={isSaving}>
+                  <Send className="h-4 w-4" />
+                  Save settings
                 </Button>
               </div>
             </form>
@@ -139,20 +211,20 @@ export default function TelegramSettings() {
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-xl">
-                <Bot className="h-5 w-5 text-teal-700" />
+              <CardTitle className="flex items-center gap-2">
+                <Bot className="h-5 w-5 text-primary" />
                 Delivery preview
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4 text-sm text-slate-600">
-              <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
-                <p className="font-semibold text-slate-900">Sample message</p>
-                <p className="mt-3 text-sm leading-6">
-                  `DOWN` Checkout Browser Flow failed in `us-east-1` with `assert_text` timeout after 30 seconds.
+            <CardContent className="space-y-4 text-sm text-muted-foreground">
+              <div className="rounded-lg bg-secondary p-4">
+                <p className="font-semibold text-foreground">Sample message</p>
+                <p className="mt-3 text-sm leading-5">
+                  `DOWN` Monitor `api-health` failed: HTTP 500 after 3 retries.
                 </p>
               </div>
-              <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
-                <p className="font-semibold text-slate-900">Current scopes</p>
+              <div className="rounded-lg bg-secondary p-4">
+                <p className="font-semibold text-foreground">Current scopes</p>
                 <p className="mt-3">{selectedAlerts.join(', ') || 'No alerts selected'}</p>
               </div>
             </CardContent>
@@ -160,12 +232,12 @@ export default function TelegramSettings() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-xl">
-                <BellRing className="h-5 w-5 text-teal-700" />
+              <CardTitle className="flex items-center gap-2">
+                <BellRing className="h-5 w-5 text-primary" />
                 Platform notes
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3 text-sm leading-6 text-slate-600">
+            <CardContent className="space-y-3 text-sm leading-5 text-muted-foreground">
               <InfoRow icon={Smartphone} text="PWA push is a future enhancement. Telegram acts as the first reliable alert channel." />
               <InfoRow icon={TriangleAlert} text="iOS web push requires iOS 16.4+ and an installed Home Screen app, even when Telegram is configured." />
             </CardContent>
@@ -178,9 +250,9 @@ export default function TelegramSettings() {
 
 function InfoRow({ icon: Icon, text }: { icon: typeof Bot; text: string }) {
   return (
-    <div className="rounded-[1.25rem] border border-slate-200 p-4">
+    <div className="rounded-lg border border-border p-4">
       <div className="flex items-start gap-3">
-        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-teal-50 text-teal-700">
+        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent text-primary">
           <Icon className="h-4 w-4" />
         </div>
         <p>{text}</p>
