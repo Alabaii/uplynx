@@ -1,6 +1,8 @@
-from sqlalchemy import select
+from fastapi import HTTPException, status
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models import Organization, OrgMember, User
 
 DEFAULT_ORG_SLUG = "default"
@@ -14,6 +16,21 @@ def get_or_create_default_org(db: Session) -> Organization:
         db.add(org)
         db.flush()
     return org
+
+
+def enforce_member_quota(db: Session, org: Organization) -> None:
+    """403, если в enterprise-режиме добавление ещё одного участника превысит quota_members.
+
+    В team-режиме действует глобальный env-лимит (TEAM_MAX_USERS), квоты организации игнорируются.
+    """
+    if get_settings().deployment_mode != "enterprise" or org.quota_members is None:
+        return
+    current = db.scalar(select(func.count()).select_from(OrgMember).where(OrgMember.org_id == org.id)) or 0
+    if current + 1 > org.quota_members:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Member quota reached: organization allows at most {org.quota_members} members",
+        )
 
 
 def ensure_membership(db: Session, user: User, org: Organization) -> OrgMember:

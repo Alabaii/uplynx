@@ -8,7 +8,7 @@ from app.core.database import get_db
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models import OrgMember, User
 from app.schemas import MeRead, Token, UserCreate, UserLogin, UserOrganizationRead, UserRead
-from app.services.orgs import ensure_membership, get_or_create_default_org
+from app.services.orgs import enforce_member_quota, ensure_membership, get_or_create_default_org
 
 router = APIRouter()
 
@@ -29,7 +29,10 @@ def register(payload: UserCreate, db: Session = Depends(get_db)) -> User:
     user = User(email=payload.email.lower(), hashed_password=hash_password(payload.password))
     db.add(user)
     db.flush()
-    ensure_membership(db, user, get_or_create_default_org(db))
+    # регистрация создаёт членство в default-организации — её quota_members действует и здесь
+    org = get_or_create_default_org(db)
+    enforce_member_quota(db, org)
+    ensure_membership(db, user, org)
     db.commit()
     db.refresh(user)
     return user

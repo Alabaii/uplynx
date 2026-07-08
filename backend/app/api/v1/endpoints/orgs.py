@@ -7,9 +7,21 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import create_access_token
 from app.models import Organization, OrgMember, User
-from app.schemas import OrgCreate, OrgMemberAdd, OrgMemberRead, OrgMemberUpdate, OrgRead, Token
+from app.schemas import OrgCreate, OrgMemberAdd, OrgMemberRead, OrgMemberUpdate, OrgRead, OrgUpdate, Token
+from app.services.orgs import enforce_member_quota
 
 router = APIRouter()
+
+
+def to_org_read(org: Organization, role: str) -> OrgRead:
+    return OrgRead(
+        id=org.id,
+        name=org.name,
+        slug=org.slug,
+        role=role,
+        quota_monitors=org.quota_monitors,
+        quota_members=org.quota_members,
+    )
 
 
 @router.get("", response_model=list[OrgRead])
@@ -20,7 +32,7 @@ def list_my_orgs(user: User = Depends(get_current_user), db: Session = Depends(g
         .where(OrgMember.user_id == user.id)
         .order_by(OrgMember.id)
     ).all()
-    return [OrgRead(id=org.id, name=org.name, slug=org.slug, role=role) for org, role in rows]
+    return [to_org_read(org, role) for org, role in rows]
 
 
 @router.post("", response_model=OrgRead, status_code=status.HTTP_201_CREATED)
@@ -42,7 +54,23 @@ def create_org(
     db.add(OrgMember(org_id=org.id, user_id=user.id, role="owner"))
     db.commit()
     db.refresh(org)
-    return OrgRead(id=org.id, name=org.name, slug=org.slug, role="owner")
+    return to_org_read(org, "owner")
+
+
+@router.patch("/current", response_model=OrgRead)
+def update_current_org(
+    payload: OrgUpdate,
+    ctx: OrgContext = Depends(require_role("owner")),
+    db: Session = Depends(get_db),
+) -> OrgRead:
+    data = payload.model_dump(exclude_unset=True)
+    if data.get("name") is None:
+        data.pop("name", None)  # name — NOT NULL, явный null игнорируем
+    for field, value in data.items():
+        setattr(ctx.org, field, value)
+    db.commit()
+    db.refresh(ctx.org)
+    return to_org_read(ctx.org, ctx.role)
 
 
 @router.post("/{org_id}/switch", response_model=Token)
@@ -85,6 +113,7 @@ def add_member(
     existing = db.scalar(select(OrgMember).where(OrgMember.org_id == ctx.org.id, OrgMember.user_id == user.id))
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="User is already a member")
+    enforce_member_quota(db, ctx.org)
     member = OrgMember(org_id=ctx.org.id, user_id=user.id, role=payload.role)
     db.add(member)
     db.commit()

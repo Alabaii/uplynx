@@ -291,3 +291,58 @@ def test_scheduler_publishes_due_and_advances_next_run_at(worker_session_factory
 
     # монитор больше не due — повторная итерация ничего не публикует
     assert publish_due_checks(FakePublisher()) == 0
+
+
+def test_scheduler_fair_share_between_orgs(worker_session_factory, monkeypatch):
+    from app.workers.scheduler import publish_due_checks
+
+    monkeypatch.setattr("app.workers.scheduler.SessionLocal", worker_session_factory)
+    monkeypatch.setattr(get_settings(), "scheduler_org_batch_limit", 2)
+
+    due_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    with worker_session_factory() as db:
+        user = User(email="fair@example.com", hashed_password="x")
+        big = Organization(name="Big", slug="big")
+        small = Organization(name="Small", slug="small")
+        db.add_all([user, big, small])
+        db.flush()
+        for org, count in ((big, 5), (small, 1)):
+            for idx in range(count):
+                db.add(
+                    Monitor(
+                        user_id=user.id,
+                        org_id=org.id,
+                        slug=f"{org.slug}-{idx}",
+                        name=f"{org.slug}-{idx}",
+                        type="http",
+                        status="up",
+                        url="https://example.com",
+                        interval=60,
+                        config_json={},
+                        enabled=True,
+                        next_run_at=due_at,
+                    )
+                )
+        db.commit()
+        big_id, small_id = big.id, small.id
+
+    published = []
+
+    class FakePublisher:
+        def publish(self, task):
+            published.append(task)
+
+    # cap=2: у big публикуются только 2 из 5, у small — единственный
+    assert publish_due_checks(FakePublisher()) == 3
+
+    with worker_session_factory() as db:
+        published_ids = {task.monitor_id for task in published}
+        per_org: dict[int, int] = {}
+        for monitor in db.scalars(select(Monitor)).all():
+            next_run_at = monitor.next_run_at.replace(tzinfo=timezone.utc)
+            if monitor.id in published_ids:
+                per_org[monitor.org_id] = per_org.get(monitor.org_id, 0) + 1
+                assert next_run_at > due_at  # опубликованным сдвинули next_run_at
+            else:
+                assert next_run_at == due_at  # остальные ждут следующего тика
+        assert per_org == {big_id: 2, small_id: 1}

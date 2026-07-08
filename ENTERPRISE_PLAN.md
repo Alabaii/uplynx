@@ -3,8 +3,8 @@
 Статус реализации (обновлено 2026-07-08):
 - **Фаза A — реализована**: организации в схеме данных, миграция 0002 с бэкфиллом, членство при регистрации, `/auth/me` с блоком organization.
 - **Фаза B — реализована**: RBAC-роли (viewer/member/admin/owner), общий воркспейс организации (мониторы/конфиг/Telegram по `org_id`), эндпоинты `/orgs` и страница Team, командные алерты, org_id в JWT, миграция 0003.
-- **Фаза C — реализована частично** (C-lite): ретеншен `RETENTION_DAYS` с суточным роллапом в `uptime_daily` (миграция 0004), batch-эндпоинт `GET /monitors/uptime`, честные метрики на дашборде. Остались: партиционирование, fair scheduling, квоты per-org — ближе к реальной нагрузке.
-- Фаза D — спроектирована, не начата.
+- **Фаза C — реализована**: ретеншен `RETENTION_DAYS` с суточным роллапом в `uptime_daily` (миграция 0004), batch-эндпоинт `GET /monitors/uptime`, честные метрики на дашборде; fair scheduling (`row_number() OVER (PARTITION BY org_id)`, `SCHEDULER_ORG_BATCH_LIMIT`), квоты per-org (`PATCH /orgs/current`, enforcement quota_monitors/quota_members в enterprise-режиме), партиционирование `check_results` по месяцам на PostgreSQL (миграция 0006, `ensure_partitions` + DROP старых партиций при ретеншене; на sqlite — прежнее поведение).
+- Фаза D — спроектирована, не начата (RLS и аудит-лог — сюда).
 
 Решения зафиксированы с владельцем продукта 2026-07-08:
 

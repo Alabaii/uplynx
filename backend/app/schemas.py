@@ -49,11 +49,20 @@ class OrgRead(BaseModel):
     name: str
     slug: str
     role: OrgRole
+    quota_monitors: int | None = None
+    quota_members: int | None = None
 
 
 class OrgCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     slug: str = Field(min_length=1, max_length=160, pattern=r"^[a-z0-9][a-z0-9-]*$")
+
+
+class OrgUpdate(BaseModel):
+    # null для квоты значим (снять лимит), поэтому обработка через exclude_unset
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    quota_monitors: int | None = Field(default=None, ge=0)
+    quota_members: int | None = Field(default=None, ge=1)
 
 
 class OrgMemberRead(BaseModel):

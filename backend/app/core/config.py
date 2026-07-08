@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24
     scheduler_poll_seconds: int = 5
+    # максимум мониторов одной организации в батче шедулера (fair scheduling)
+    scheduler_org_batch_limit: int = 200
     check_timeout_seconds: int = 30
     retention_days: int = 365
     browser_concurrency: int = 2

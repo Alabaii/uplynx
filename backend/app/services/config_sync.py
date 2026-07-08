@@ -70,16 +70,25 @@ def build_config_from_db(db: Session, org: Organization) -> ConfigDocument:
 
 
 def enforce_monitor_limit(db: Session, org: Organization, new_enabled_count: int) -> None:
+    """new_enabled_count — сколько enabled-мониторов будет у организации после изменения.
+
+    team: глобальный env-лимит на инсталляцию; enterprise: quota_monitors организации (null = безлимит).
+    """
     settings = get_settings()
-    if settings.deployment_mode != "team":
+    if settings.deployment_mode == "team":
+        others = db.scalar(
+            select(func.count()).select_from(Monitor).where(Monitor.enabled.is_(True), Monitor.org_id != org.id)
+        ) or 0
+        if others + new_enabled_count > settings.team_max_monitors:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Monitor limit reached: team deployment allows at most {settings.team_max_monitors} enabled monitors",
+            )
         return
-    others = db.scalar(
-        select(func.count()).select_from(Monitor).where(Monitor.enabled.is_(True), Monitor.org_id != org.id)
-    ) or 0
-    if others + new_enabled_count > settings.team_max_monitors:
+    if org.quota_monitors is not None and new_enabled_count > org.quota_monitors:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Monitor limit reached: team deployment allows at most {settings.team_max_monitors} enabled monitors",
+            detail=f"Monitor quota reached: organization allows at most {org.quota_monitors} enabled monitors",
         )
 
 

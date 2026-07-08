@@ -1,10 +1,66 @@
+import re
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import case, delete, func, select
+from sqlalchemy import case, delete, func, select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models import CheckResult, Monitor, UptimeDaily
+
+# месячные партиции check_results (только postgres): check_results_YYYY_MM
+PARTITION_NAME_RE = re.compile(r"^check_results_(\d{4})_(\d{2})$")
+
+
+def _month_start(anchor: date, offset: int = 0) -> date:
+    total = anchor.year * 12 + (anchor.month - 1) + offset
+    return date(total // 12, total % 12 + 1, 1)
+
+
+def _partition_ddl(start: date) -> str:
+    end = _month_start(start, 1)
+    name = f"check_results_{start.year:04d}_{start.month:02d}"
+    return (
+        f'CREATE TABLE IF NOT EXISTS "{name}" PARTITION OF check_results '
+        f"FOR VALUES FROM ('{start.isoformat()} 00:00:00+00') TO ('{end.isoformat()} 00:00:00+00')"
+    )
+
+
+def ensure_partitions(db: Session) -> None:
+    """Создаёт месячные партиции check_results на текущий и следующий месяц (только PostgreSQL)."""
+    if db.get_bind().dialect.name != "postgresql":
+        return
+    today = datetime.now(timezone.utc).date()
+    for offset in (0, 1):
+        db.execute(text(_partition_ddl(_month_start(today, offset))))
+    db.commit()
+
+
+def _prune_raw_results(db: Session, cutoff: datetime) -> int:
+    """Удаляет сырые результаты старше cutoff, возвращает число удалённых строк.
+
+    На PostgreSQL месячные партиции, целиком попавшие за горизонт ретеншена, дропаются
+    целиком (дёшево); частично попавший месяц чистится обычным DELETE. На sqlite — только DELETE.
+    """
+    pruned = 0
+    if db.get_bind().dialect.name == "postgresql":
+        rows = db.execute(
+            text(
+                "SELECT c.relname FROM pg_inherits i "
+                "JOIN pg_class c ON c.oid = i.inhrelid "
+                "JOIN pg_class p ON p.oid = i.inhparent "
+                "WHERE p.relname = 'check_results'"
+            )
+        ).all()
+        for (name,) in rows:
+            match = PARTITION_NAME_RE.match(name)
+            if not match:
+                continue
+            upper = _month_start(date(int(match.group(1)), int(match.group(2)), 1), 1)
+            if datetime(upper.year, upper.month, upper.day, tzinfo=timezone.utc) <= cutoff:
+                pruned += db.execute(text(f'SELECT count(*) FROM "{name}"')).scalar() or 0
+                db.execute(text(f'DROP TABLE "{name}"'))
+    pruned += db.execute(delete(CheckResult).where(CheckResult.timestamp < cutoff)).rowcount
+    return pruned
 
 
 def rollup_and_prune(db: Session) -> tuple[int, int]:
@@ -67,6 +123,6 @@ def rollup_and_prune(db: Session) -> tuple[int, int]:
             existing.checks_degraded += row.checks_degraded
             existing.checks_down += row.checks_down
 
-    pruned = db.execute(delete(CheckResult).where(CheckResult.timestamp < cutoff)).rowcount
+    pruned = _prune_raw_results(db, cutoff)
     db.commit()
     return len(groups), pruned

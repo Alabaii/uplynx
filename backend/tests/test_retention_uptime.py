@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 
 from app.core.config import get_settings
 from app.models import CheckResult, Monitor, Organization, UptimeDaily, User
-from app.services.retention import rollup_and_prune
+from app.services.retention import ensure_partitions, rollup_and_prune
 
 MONITOR_PAYLOAD = {"id": "site", "type": "http", "url": "https://example.com", "interval": 60}
 
@@ -89,6 +89,12 @@ def test_rollup_and_prune_archives_old_and_keeps_fresh(db_session_factory):
         assert rollup_and_prune(db) == (0, 0)
         assert db.scalar(select(func.count()).select_from(UptimeDaily)) == 1
         assert db.scalar(select(UptimeDaily)).checks_total == 4
+
+
+def test_ensure_partitions_noop_on_sqlite(db_session_factory):
+    # партиционирование только для postgres; на sqlite вызов безопасен и ничего не делает
+    with db_session_factory() as db:
+        assert ensure_partitions(db) is None
 
 
 def test_monitors_uptime_math_and_empty_monitor(client, auth_headers, db_session_factory):
