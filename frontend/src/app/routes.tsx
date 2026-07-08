@@ -1,6 +1,7 @@
 import React from 'react';
 import { createBrowserRouter, Navigate } from 'react-router';
 import { AppLayout } from './layouts/AppLayout';
+import { MetaProvider } from './meta-context';
 import { hasValidSession } from './auth';
 
 const AuthPage = React.lazy(() => import('./pages/Auth'));
@@ -39,7 +40,9 @@ export const router = createBrowserRouter([
     path: '/',
     element: (
       <ProtectedRoute>
-        <AppLayout />
+        <MetaProvider>
+          <AppLayout />
+        </MetaProvider>
       </ProtectedRoute>
     ),
     children: [

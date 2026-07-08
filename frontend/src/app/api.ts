@@ -163,6 +163,22 @@ export function login(email: string, password: string) {
   });
 }
 
+export type DeploymentMode = 'team' | 'enterprise';
+
+export type DeploymentLimits = {
+  max_users: number;
+  max_monitors: number;
+};
+
+export type Meta = {
+  deployment_mode: DeploymentMode;
+  limits: DeploymentLimits | null;
+};
+
+export function getMeta() {
+  return request<Meta>('/meta', { auth: false });
+}
+
 export type OrgRole = 'owner' | 'admin' | 'member' | 'viewer';
 
 export type OrganizationInfo = {
@@ -208,6 +224,30 @@ export function updateMemberRole(userId: number, role: OrgRole) {
 export function removeOrgMember(userId: number) {
   return request<void>(`/orgs/current/members/${userId}`, {
     method: 'DELETE',
+  });
+}
+
+export type Org = {
+  id: number;
+  name: string;
+  slug: string;
+  role: OrgRole;
+};
+
+export function listOrgs() {
+  return request<Org[]>('/orgs');
+}
+
+export function switchOrg(orgId: number) {
+  return request<{ access_token: string; token_type: string }>(`/orgs/${orgId}/switch`, {
+    method: 'POST',
+  });
+}
+
+export function createOrg(payload: { name: string; slug: string }) {
+  return request<Org>('/orgs', {
+    method: 'POST',
+    body: payload,
   });
 }
 
