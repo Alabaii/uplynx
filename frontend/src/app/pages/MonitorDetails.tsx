@@ -7,6 +7,7 @@ import {
   FileText,
   Globe,
   ServerCog,
+  Siren,
   Zap,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
@@ -15,11 +16,14 @@ import {
   ApiError,
   getHistory,
   getMonitor,
+  getMonitorIncidents,
   getStatusLabel,
   type CheckResult,
+  type Incident,
   type Monitor,
 } from '../api';
 import { cn } from '../utils/cn';
+import { formatDuration, formatRelativeTime } from '../utils/time';
 import {
   Area,
   AreaChart,
@@ -37,6 +41,7 @@ export default function MonitorDetails() {
   const navigate = useNavigate();
   const [monitor, setMonitor] = useState<Monitor | null>(null);
   const [checks, setChecks] = useState<CheckResult[]>([]);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
   const [range, setRange] = useState<(typeof ranges)[number]>('24h');
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -47,11 +52,12 @@ export default function MonitorDetails() {
 
     setLoading(true);
 
-    Promise.all([getMonitor(id), getHistory({ monitorId: id, range })])
-      .then(([monitorData, history]) => {
+    Promise.all([getMonitor(id), getHistory({ monitorId: id, range }), getMonitorIncidents(id)])
+      .then(([monitorData, history, incidentsData]) => {
         if (!ignore) {
           setMonitor(monitorData);
           setChecks(history);
+          setIncidents(incidentsData);
           setError('');
         }
       })
@@ -331,6 +337,43 @@ export default function MonitorDetails() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Siren className="h-5 w-5 text-primary" />
+            Incidents
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {incidents.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border bg-secondary p-8 text-center text-sm text-placeholder">
+              No incidents recorded.
+            </div>
+          ) : (
+            incidents.map((incident) => (
+              <div key={incident.id} className="rounded-lg border border-border p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <StatusBadge status={incident.severity} />
+                    <p className="text-sm text-muted-foreground">Started {formatRelativeTime(incident.started_at)}</p>
+                  </div>
+                  {incident.status === 'open' ? (
+                    <span className="inline-flex items-center rounded-lg bg-status-down/10 px-2.5 py-1 text-xs font-semibold text-status-down">
+                      Ongoing
+                    </span>
+                  ) : (
+                    <p className="text-sm font-semibold text-foreground">{formatDuration(incident.duration_seconds)}</p>
+                  )}
+                </div>
+                {incident.trigger_error && (
+                  <p className="mt-2 truncate text-xs text-placeholder">{incident.trigger_error}</p>
+                )}
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

@@ -7,6 +7,7 @@ import {
   LogOut,
   PlusCircle,
   Send,
+  Siren,
   Smartphone,
   Users,
 } from 'lucide-react';
@@ -20,11 +21,16 @@ import { cn } from '../utils/cn';
 
 const navigation = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/incidents', label: 'Incidents', icon: Siren },
   { to: '/config', label: 'Config', icon: FileCode2 },
   { to: '/monitors/new', label: 'New Monitor', icon: PlusCircle },
   { to: '/team', label: 'Team', icon: Users },
   { to: '/telegram', label: 'Telegram', icon: Send },
 ];
+
+// нижняя навигация на мобиле — ровно 5 пунктов в grid-cols-5; Incidents доступен на десктопе
+// и из карточки монитора, поэтому здесь он опущен, чтобы не ломать сетку шестым пунктом
+const mobileNavigation = navigation.filter((item) => item.to !== '/incidents');
 
 export function AppLayout() {
   const navigate = useNavigate();
@@ -176,7 +182,7 @@ export function AppLayout() {
 
       <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-border bg-card px-2 pb-[env(safe-area-inset-bottom)] pt-2 shadow-bottom-sheet lg:hidden">
         <div className="grid grid-cols-5 gap-1">
-          {navigation.map((item) => (
+          {mobileNavigation.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
