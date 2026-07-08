@@ -10,15 +10,56 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.core.security import decrypt_secret
-from app.models import CheckResult, Monitor, TelegramIntegration
+from app.models import CheckResult, Monitor, PushSubscription, TelegramIntegration
 from app.schemas import CheckTask
 from app.services.alerting import alert_scope_for_result, build_alert_text
 from app.services.queue import deserialize_task
 from app.services.telegram import send_telegram_message
+from app.services.webpush import PushSubscriptionGone, push_enabled, send_web_push
 
 logger = logging.getLogger(__name__)
 
 ResultRunner = Callable[[CheckTask], Awaitable[dict]]
+
+
+async def send_telegram_alert(monitor: Monitor, scope: str, text: str) -> None:
+    with SessionLocal() as db:
+        integration = db.scalar(
+            select(TelegramIntegration).where(TelegramIntegration.org_id == monitor.org_id)
+        )
+    if not integration or scope not in (integration.alert_scopes or []):
+        return
+    bot_token = decrypt_secret(integration.bot_token_secret)
+    delivered = await send_telegram_message(bot_token, integration.chat_id, text)
+    if delivered:
+        logger.info("sent %s alert for monitor %s", scope, monitor.slug)
+    else:
+        logger.warning("Telegram rejected %s alert for monitor %s (check bot token/chat id)", scope, monitor.slug)
+
+
+def send_push_alerts(monitor: Monitor, scope: str, body: str) -> None:
+    if not push_enabled():
+        return
+    # scope: down/degraded/recovered -> "slug is DOWN/DEGRADED/RECOVERED"
+    title = f"{monitor.slug} is {scope.upper()}"
+    url = f"/monitors/{monitor.slug}"
+    sent = 0
+    removed = 0
+    with SessionLocal() as db:
+        subscriptions = db.scalars(
+            select(PushSubscription).where(PushSubscription.org_id == monitor.org_id)
+        ).all()
+        for subscription in subscriptions:
+            try:
+                if send_web_push(subscription, title, body, url=url):
+                    sent += 1
+            except PushSubscriptionGone:
+                db.delete(subscription)
+                removed += 1
+        if removed:
+            db.commit()
+    if sent or removed:
+        logger.info("sent %s push alerts for monitor %s (removed %s dead subscriptions)", sent, monitor.slug, removed)
 
 
 async def send_status_alert(monitor: Monitor, check_result: CheckResult, previous_status: str | None) -> None:
@@ -27,19 +68,12 @@ async def send_status_alert(monitor: Monitor, check_result: CheckResult, previou
     scope = alert_scope_for_result(previous_status, check_result.status)
     if not scope:
         return
-    with SessionLocal() as db:
-        integration = db.scalar(
-            select(TelegramIntegration).where(TelegramIntegration.org_id == monitor.org_id)
-        )
-    if not integration or scope not in (integration.alert_scopes or []):
-        return
-    bot_token = decrypt_secret(integration.bot_token_secret)
     text = build_alert_text(monitor, check_result, scope)
-    delivered = await send_telegram_message(bot_token, integration.chat_id, text)
-    if delivered:
-        logger.info("sent %s alert for monitor %s", scope, monitor.slug)
-    else:
-        logger.warning("Telegram rejected %s alert for monitor %s (check bot token/chat id)", scope, monitor.slug)
+    try:
+        await send_telegram_alert(monitor, scope, text)
+    except Exception:  # noqa: BLE001 — push отправляется независимо от Telegram
+        logger.exception("failed to send Telegram alert for monitor %s", monitor.id)
+    send_push_alerts(monitor, scope, text)
 
 
 async def persist_result(task: CheckTask, result: dict) -> None:

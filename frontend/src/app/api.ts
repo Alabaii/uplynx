@@ -288,3 +288,26 @@ export function testTelegram() {
     method: 'POST',
   });
 }
+
+export type PushConfig = {
+  enabled: boolean;
+  public_key: string | null;
+};
+
+export function getPushConfig() {
+  return request<PushConfig>('/push/config', { auth: false });
+}
+
+export function subscribePush(payload: { endpoint: string; keys: { p256dh: string; auth: string } }) {
+  return request<void>('/push/subscribe', {
+    method: 'POST',
+    body: payload,
+  });
+}
+
+export function unsubscribePush(endpoint: string) {
+  return request<void>('/push/unsubscribe', {
+    method: 'POST',
+    body: { endpoint },
+  });
+}

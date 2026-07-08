@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { BellRing, Bot, CheckCircle2, Send, Smartphone, TriangleAlert } from 'lucide-react';
+import { Bell, BellRing, Bot, CheckCircle2, Send, Smartphone, TriangleAlert } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { ApiError, connectTelegram, getTelegram, testTelegram } from '../api';
+import { usePushNotifications, type PushStatus } from '../pwa/usePushNotifications';
 import { cn } from '../utils/cn';
 
 const alertScopes = [
@@ -230,6 +231,8 @@ export default function TelegramSettings() {
             </CardContent>
           </Card>
 
+          <BrowserPushCard />
+
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -238,13 +241,70 @@ export default function TelegramSettings() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm leading-5 text-muted-foreground">
-              <InfoRow icon={Smartphone} text="PWA push is a future enhancement. Telegram acts as the first reliable alert channel." />
+              <InfoRow icon={Smartphone} text="Browser push and Telegram are independent channels - enable either or both." />
               <InfoRow icon={TriangleAlert} text="iOS web push requires iOS 16.4+ and an installed Home Screen app, even when Telegram is configured." />
             </CardContent>
           </Card>
         </div>
       </div>
     </div>
+  );
+}
+
+const pushStatusText: Record<PushStatus, string> = {
+  loading: 'Checking browser support...',
+  unsupported: 'Push requires the installed PWA (production build). Open the app from your home screen to enable it.',
+  'disabled-on-server': 'Push is not configured on this server. Ask an administrator to set VAPID keys.',
+  'permission-denied': 'Notifications are blocked for this site. Allow them in the browser settings and reload.',
+  subscribed: 'This device receives push alerts when monitors change status.',
+  'not-subscribed': 'This device is not subscribed yet. Enable push to get alerts even when the app is closed.',
+};
+
+function BrowserPushCard() {
+  const { status, isBusy, error, enable, disable } = usePushNotifications();
+  const canToggle = status === 'subscribed' || status === 'not-subscribed';
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Bell className="h-5 w-5 text-primary" />
+          Browser push
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4 text-sm leading-5 text-muted-foreground">
+        <div className="flex items-center justify-between gap-3 rounded-lg bg-secondary p-4">
+          <div>
+            <p className="font-semibold text-foreground">Status</p>
+            <p className="mt-1">{status === 'subscribed' ? 'Enabled on this device' : 'Not active'}</p>
+          </div>
+          <span
+            className={cn(
+              'rounded-lg px-3 py-1 text-xs font-semibold',
+              status === 'subscribed' ? 'bg-accent text-accent-foreground' : 'bg-card text-muted-foreground'
+            )}
+          >
+            {status === 'subscribed' ? 'On' : 'Off'}
+          </span>
+        </div>
+
+        <p>{pushStatusText[status]}</p>
+
+        {error && <p className="rounded-lg bg-destructive/10 p-3 text-destructive">{error}</p>}
+
+        {canToggle && (
+          <Button
+            type="button"
+            variant={status === 'subscribed' ? 'ghost' : 'primary'}
+            onClick={status === 'subscribed' ? disable : enable}
+            isLoading={isBusy}
+          >
+            <Bell className="h-4 w-4" />
+            {status === 'subscribed' ? 'Disable push' : 'Enable push'}
+          </Button>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

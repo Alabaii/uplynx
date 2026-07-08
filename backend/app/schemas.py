@@ -222,6 +222,25 @@ class TelegramTestResponse(BaseModel):
     detail: str
 
 
+class PushConfigRead(BaseModel):
+    enabled: bool
+    public_key: str | None = None
+
+
+class PushSubscriptionKeys(BaseModel):
+    p256dh: str = Field(min_length=1, max_length=255)
+    auth: str = Field(min_length=1, max_length=255)
+
+
+class PushSubscribe(BaseModel):
+    endpoint: str = Field(min_length=1, max_length=2048)
+    keys: PushSubscriptionKeys
+
+
+class PushUnsubscribe(BaseModel):
+    endpoint: str = Field(min_length=1, max_length=2048)
+
+
 class DeploymentLimits(BaseModel):
     max_users: int
     max_monitors: int

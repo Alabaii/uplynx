@@ -5,11 +5,13 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
+from app.core.config import get_settings
 from app.core.database import Base
 from app.core.security import encrypt_secret
-from app.models import CheckResult, Monitor, Organization, TelegramIntegration, User
+from app.models import CheckResult, Monitor, Organization, PushSubscription, TelegramIntegration, User
 from app.schemas import CheckTask
 from app.services.checks import run_browser_check
+from app.services.webpush import PushSubscriptionGone
 from app.workers.base import persist_result
 
 
@@ -189,6 +191,82 @@ def test_alert_failure_does_not_break_persist(worker_session_factory, monkeypatc
     with worker_session_factory() as db:
         assert db.scalar(select(CheckResult).where(CheckResult.task_id == "f1")) is not None
         assert db.get(Monitor, monitor_id).status == "down"
+
+
+def enable_push(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "vapid_public_key", "test-public-key")
+    monkeypatch.setattr(settings, "vapid_private_key", "test-private-key")
+
+
+def add_push_subscription(session_factory, endpoint):
+    with session_factory() as db:
+        org = db.scalar(select(Organization))
+        user = db.scalar(select(User))
+        db.add(PushSubscription(org_id=org.id, user_id=user.id, endpoint=endpoint, p256dh="p", auth="a"))
+        db.commit()
+
+
+def test_push_alerts_sent_to_all_org_subscriptions(worker_session_factory, monkeypatch):
+    enable_push(monkeypatch)
+    monitor_id = seed_monitor(worker_session_factory, status="up", with_integration=False)
+    add_push_subscription(worker_session_factory, "https://push.example/one")
+    add_push_subscription(worker_session_factory, "https://push.example/two")
+
+    pushed = []
+
+    def fake_push(subscription, title, body, url="/"):
+        pushed.append((subscription.endpoint, title, body, url))
+        return True
+
+    monkeypatch.setattr("app.workers.base.send_web_push", fake_push)
+
+    asyncio.run(persist_result(make_task(monitor_id, "p1"), {"status": "down", "error": "boom", "details": {}}))
+
+    assert sorted(item[0] for item in pushed) == ["https://push.example/one", "https://push.example/two"]
+    assert pushed[0][1] == "site is DOWN"
+    assert "down" in pushed[0][2]
+    assert pushed[0][3] == "/monitors/site"
+
+    # тот же статус повторно — push не дублируется
+    asyncio.run(persist_result(make_task(monitor_id, "p2"), {"status": "down", "error": "boom", "details": {}}))
+    assert len(pushed) == 2
+
+
+def test_push_dead_subscription_removed(worker_session_factory, monkeypatch):
+    enable_push(monkeypatch)
+    monitor_id = seed_monitor(worker_session_factory, status="up", with_integration=False)
+    add_push_subscription(worker_session_factory, "https://push.example/alive")
+    add_push_subscription(worker_session_factory, "https://push.example/dead")
+
+    def fake_push(subscription, title, body, url="/"):
+        if subscription.endpoint.endswith("/dead"):
+            raise PushSubscriptionGone
+        return True
+
+    monkeypatch.setattr("app.workers.base.send_web_push", fake_push)
+
+    asyncio.run(persist_result(make_task(monitor_id, "p1"), {"status": "down", "error": "boom", "details": {}}))
+
+    with worker_session_factory() as db:
+        endpoints = [row.endpoint for row in db.scalars(select(PushSubscription)).all()]
+        assert endpoints == ["https://push.example/alive"]
+        # результат проверки сохранён несмотря на мёртвую подписку
+        assert db.scalar(select(CheckResult).where(CheckResult.task_id == "p1")) is not None
+
+
+def test_push_skipped_without_vapid_keys(worker_session_factory, monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "vapid_public_key", None)
+    monkeypatch.setattr(settings, "vapid_private_key", None)
+    monitor_id = seed_monitor(worker_session_factory, status="up", with_integration=False)
+    add_push_subscription(worker_session_factory, "https://push.example/one")
+
+    pushed = []
+    monkeypatch.setattr("app.workers.base.send_web_push", lambda *args, **kwargs: pushed.append(args))
+
+    asyncio.run(persist_result(make_task(monitor_id, "p1"), {"status": "down", "error": "boom", "details": {}}))
+    assert pushed == []
 
 
 def test_scheduler_publishes_due_and_advances_next_run_at(worker_session_factory, monkeypatch):

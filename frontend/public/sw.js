@@ -69,7 +69,8 @@ self.addEventListener('push', (event) => {
   const options = {
     body: data.body || 'One of your monitors changed status.',
     icon: '/icon-192x192.png',
-    badge: '/icon-192x192.png'
+    badge: '/icon-192x192.png',
+    data: { url: data.url || '/' }
   };
 
   event.waitUntil(
@@ -79,7 +80,8 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || '/';
   event.waitUntil(
-    clients.openWindow('/')
+    clients.openWindow(url)
   );
 });

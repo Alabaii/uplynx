@@ -40,6 +40,10 @@ services:
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
       # team (лимиты пользователей/мониторов) | enterprise (без лимитов)
       DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-team}
+      # VAPID-ключи для web push (сгенерировать: python -m app.tools.vapid); пусто — push отключён
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
     ports:
       - "8000:8000"
     restart: unless-stopped
@@ -74,6 +78,10 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-change-me}
       # нужен воркерам для расшифровки bot token при отправке алертов
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
+      # VAPID-ключи для web push (сгенерировать: python -m app.tools.vapid); пусто — push отключён
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -94,6 +102,10 @@ services:
       # нужен воркерам для расшифровки bot token при отправке алертов
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
       BROWSER_CONCURRENCY: ${BROWSER_CONCURRENCY:-2}
+      # VAPID-ключи для web push (сгенерировать: python -m app.tools.vapid); пусто — push отключён
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
     restart: unless-stopped
     depends_on:
       postgres:
