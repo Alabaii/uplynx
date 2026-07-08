@@ -251,6 +251,20 @@ export function getHistory(params: { monitorId?: string; range?: string; status?
   return request<CheckResult[]>(`/history${search.size ? `?${search.toString()}` : ''}`);
 }
 
+export type MonitorUptime = {
+  monitor_id: string;
+  uptime_pct: number | null;
+  checks_total: number;
+  avg_response_ms: number | null;
+  last_check_at: string | null;
+  last_status: MonitorStatus | null;
+  last_response_ms: number | null;
+};
+
+export function getMonitorsUptime(range: '24h' | '7d' | '30d' = '24h') {
+  return request<MonitorUptime[]>(`/monitors/uptime?range=${range}`);
+}
+
 export type TelegramIntegration = {
   connected: boolean;
   chat_id: string | null;

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
 import {
+  Activity,
   ArrowRight,
   Clock3,
   FileText,
@@ -100,6 +101,16 @@ export default function MonitorDetails() {
     return Math.round(entries.reduce((sum, check) => sum + (check.response_time_ms ?? 0), 0) / entries.length);
   }, [checks]);
 
+  const uptimePct = useMemo(() => {
+    if (checks.length === 0) {
+      return null;
+    }
+
+    const up = checks.filter((check) => check.status === 'up').length;
+
+    return Math.round((up / checks.length) * 1000) / 10;
+  }, [checks]);
+
   if (notFound) {
     return <Navigate to="/" replace />;
   }
@@ -168,8 +179,14 @@ export default function MonitorDetails() {
         <div className="rounded-lg bg-destructive/10 p-4 text-sm text-destructive">{error}</div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <MetricCard label="Status" value={getStatusLabel(monitor.status)} hint="Current monitor state" icon={Zap} />
+        <MetricCard
+          label="Uptime"
+          value={uptimePct !== null ? `${uptimePct}%` : '—'}
+          hint={`Share of successful checks in the last ${range}`}
+          icon={Activity}
+        />
         <MetricCard
           label="Average response"
           value={averageMs !== null ? `${averageMs} ms` : 'No data'}

@@ -1,6 +1,6 @@
 import logging
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import select
 
@@ -8,6 +8,7 @@ from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.models import Monitor
 from app.services.queue import RabbitPublisher, task_for_monitor
+from app.services.retention import rollup_and_prune
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,19 @@ def publish_due_checks(publisher: RabbitPublisher | None = None) -> int:
 def run_forever() -> None:
     settings = get_settings()
     publisher = RabbitPublisher()
+    last_rollup_date: date | None = None
     while True:
+        today = datetime.now(timezone.utc).date()
+        if today != last_rollup_date:
+            last_rollup_date = today
+            try:
+                with SessionLocal() as db:
+                    archived_days, pruned_rows = rollup_and_prune(db)
+                logger.info(
+                    "retention rollup: archived %s monitor-days, pruned %s raw results", archived_days, pruned_rows
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("retention rollup failed")
         try:
             publish_due_checks(publisher)
         except Exception:  # noqa: BLE001

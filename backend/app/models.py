@@ -1,6 +1,6 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
@@ -93,6 +93,24 @@ class CheckResult(Base):
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     monitor: Mapped[Monitor] = relationship(back_populates="results")
+
+
+class UptimeDaily(Base):
+    __tablename__ = "uptime_daily"
+    __table_args__ = (
+        UniqueConstraint("monitor_id", "date", name="uq_uptime_daily_monitor_date"),
+        Index("ix_uptime_daily_org_id", "org_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    monitor_id: Mapped[int] = mapped_column(ForeignKey("monitors.id", ondelete="CASCADE"), nullable=False)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    checks_total: Mapped[int] = mapped_column(Integer, nullable=False)
+    checks_up: Mapped[int] = mapped_column(Integer, nullable=False)
+    checks_degraded: Mapped[int] = mapped_column(Integer, nullable=False)
+    checks_down: Mapped[int] = mapped_column(Integer, nullable=False)
+    avg_response_ms: Mapped[int | None] = mapped_column(Integer)
 
 
 class ConfigVersion(Base):

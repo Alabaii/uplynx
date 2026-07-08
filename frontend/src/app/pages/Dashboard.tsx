@@ -14,7 +14,14 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { StatusBadge } from '../components/StatusBadge';
-import { getStatusLabel, listMonitors, type Monitor, type MonitorStatus, type MonitorType } from '../api';
+import {
+  getMonitorsUptime,
+  listMonitors,
+  type Monitor,
+  type MonitorStatus,
+  type MonitorType,
+  type MonitorUptime,
+} from '../api';
 import { cn } from '../utils/cn';
 
 const typeFilters: Array<{ value: 'all' | MonitorType; label: string }> = [
@@ -35,6 +42,7 @@ const statusFilters: Array<{ value: 'all' | MonitorStatus; label: string }> = [
 export default function Dashboard() {
   const navigate = useNavigate();
   const [monitors, setMonitors] = useState<Monitor[]>([]);
+  const [uptimeById, setUptimeById] = useState<Record<string, MonitorUptime>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
@@ -44,10 +52,11 @@ export default function Dashboard() {
   useEffect(() => {
     let ignore = false;
 
-    listMonitors()
-      .then((items) => {
+    Promise.all([listMonitors(), getMonitorsUptime('24h')])
+      .then(([items, uptimeRows]) => {
         if (!ignore) {
           setMonitors(items);
+          setUptimeById(Object.fromEntries(uptimeRows.map((row) => [row.monitor_id, row])));
           setError('');
         }
       })
@@ -68,14 +77,20 @@ export default function Dashboard() {
   }, []);
 
   const summary = useMemo(() => {
-    const total = monitors.length;
     const down = monitors.filter((monitor) => monitor.status === 'down').length;
     const degraded = monitors.filter((monitor) => monitor.status === 'degraded').length;
     const paused = monitors.filter((monitor) => monitor.status === 'paused').length;
-    const averageUptime = total === 0 ? 100 : Math.round(((total - down - degraded * 0.5) / total) * 1000) / 10;
+    const uptimeValues = monitors
+      .filter((monitor) => monitor.enabled)
+      .map((monitor) => uptimeById[monitor.id]?.uptime_pct)
+      .filter((value): value is number => typeof value === 'number');
+    const averageUptime =
+      uptimeValues.length === 0
+        ? null
+        : Math.round((uptimeValues.reduce((sum, value) => sum + value, 0) / uptimeValues.length) * 10) / 10;
 
     return { averageUptime, down, degraded, paused };
-  }, [monitors]);
+  }, [monitors, uptimeById]);
 
   const filteredMonitors = useMemo(
     () =>
@@ -130,8 +145,8 @@ export default function Dashboard() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
           title="Fleet health"
-          value={monitors.length === 0 ? '—' : `${summary.averageUptime}%`}
-          hint={monitors.length === 0 ? 'No monitors yet' : 'Share of healthy monitors right now'}
+          value={summary.averageUptime === null ? '—' : `${summary.averageUptime}%`}
+          hint={monitors.length === 0 ? 'No monitors yet' : 'Average uptime over the last 24h'}
           icon={Waves}
         />
         <SummaryCard title="Down monitors" value={String(summary.down)} hint="Require immediate action" icon={Siren} />
@@ -217,10 +232,10 @@ export default function Dashboard() {
                     </div>
 
                     <div className="grid min-w-[16rem] grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-2">
-                      <Stat label="Status" value={getStatusLabel(monitor.status)} />
-                      <Stat label="Type" value={monitor.type.toUpperCase()} />
+                      <Stat label="Uptime 24h" value={formatUptime(uptimeById[monitor.id]?.uptime_pct)} />
+                      <Stat label="Last check" value={formatRelativeTime(uptimeById[monitor.id]?.last_check_at)} />
+                      <Stat label="Response" value={formatResponse(uptimeById[monitor.id]?.last_response_ms)} />
                       <Stat label="Interval" value={formatInterval(monitor.interval)} />
-                      <Stat label="Checks" value={monitor.enabled ? 'Enabled' : 'Paused'} />
                     </div>
                   </div>
 
@@ -270,6 +285,27 @@ function SummaryCard({
 
 function formatInterval(seconds: number): string {
   return seconds < 60 ? `${seconds} s` : `${Math.round(seconds / 60)} min`;
+}
+
+function formatUptime(uptimePct: number | null | undefined): string {
+  return typeof uptimePct === 'number' ? `${uptimePct}%` : '—';
+}
+
+function formatResponse(responseMs: number | null | undefined): string {
+  return typeof responseMs === 'number' ? `${responseMs} ms` : '—';
+}
+
+function formatRelativeTime(iso: string | null | undefined): string {
+  if (!iso) {
+    return '—';
+  }
+
+  const seconds = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+
+  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
 }
 
 function Stat({ label, value }: { label: string; value: string }) {

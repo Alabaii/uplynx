@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60 * 24
     scheduler_poll_seconds: int = 5
     check_timeout_seconds: int = 30
+    retention_days: int = 365
     browser_concurrency: int = 2
     telegram_api_base: str = "https://api.telegram.org"
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"

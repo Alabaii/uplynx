@@ -183,6 +183,16 @@ class CheckResultRead(BaseModel):
     timestamp: datetime
 
 
+class MonitorUptimeRead(BaseModel):
+    monitor_id: str
+    uptime_pct: float | None
+    checks_total: int
+    avg_response_ms: int | None
+    last_check_at: datetime | None
+    last_status: MonitorStatus | None
+    last_response_ms: int | None
+
+
 class CheckTask(BaseModel):
     task_id: str
     monitor_id: int
