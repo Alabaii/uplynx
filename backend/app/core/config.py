@@ -37,6 +37,17 @@ class Settings(BaseSettings):
     login_rate_limit_window_seconds: int = 60
     register_rate_limit_attempts: int = 10
     register_rate_limit_window_seconds: int = 300
+    forgot_rate_limit_attempts: int = 5
+    forgot_rate_limit_window_seconds: int = 300
+    # SMTP для писем (сброс пароля, email-алерты); если host не задан — email отключён
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str = "PWA Monitor <no-reply@localhost>"
+    smtp_starttls: bool = True
+    # базовый URL приложения для ссылок в письмах
+    app_base_url: str = "http://localhost:5173"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

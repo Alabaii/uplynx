@@ -164,6 +164,22 @@ export function login(email: string, password: string) {
   });
 }
 
+export function forgotPassword(email: string) {
+  return request<void>('/auth/forgot-password', {
+    method: 'POST',
+    body: { email },
+    auth: false,
+  });
+}
+
+export function resetPassword(token: string, password: string) {
+  return request<void>('/auth/reset-password', {
+    method: 'POST',
+    body: { token, new_password: password },
+    auth: false,
+  });
+}
+
 export type DeploymentMode = 'team' | 'enterprise';
 
 export type DeploymentLimits = {
@@ -174,6 +190,7 @@ export type DeploymentLimits = {
 export type Meta = {
   deployment_mode: DeploymentMode;
   limits: DeploymentLimits | null;
+  email_enabled: boolean;
 };
 
 export function getMeta() {
@@ -188,9 +205,10 @@ export type OrganizationInfo = {
   slug: string;
   role: OrgRole;
   status_page_enabled: boolean;
+  alert_emails?: string[];
 };
 
-export function updateCurrentOrg(payload: { status_page_enabled?: boolean }) {
+export function updateCurrentOrg(payload: { status_page_enabled?: boolean; alert_emails?: string[] }) {
   return request<OrganizationInfo>('/orgs/current', {
     method: 'PATCH',
     body: payload,
@@ -233,6 +251,7 @@ export type Org = {
   name: string;
   slug: string;
   role: OrgRole;
+  alert_emails?: string[];
 };
 
 export function listOrgs() {

@@ -36,6 +36,22 @@ class Organization(Base):
     quota_monitors: Mapped[int | None] = mapped_column(Integer)
     quota_members: Mapped[int | None] = mapped_column(Integer)
     status_page_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    alert_emails: Mapped[list[str]] = mapped_column(JSONType, nullable=False, default=list)
+
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+    __table_args__ = (
+        Index("ix_password_reset_tokens_user_id", "user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    # в БД хранится только sha256-hex токена — утечка таблицы не даёт сбросить пароль
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
 class OrgMember(Base):

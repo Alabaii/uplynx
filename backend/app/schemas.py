@@ -28,6 +28,15 @@ class UserLogin(BaseModel):
     password: str
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=1, max_length=200)
+    new_password: str = Field(min_length=8, max_length=200)
+
+
 class UserRead(BaseModel):
     id: int
     email: EmailStr
@@ -55,6 +64,7 @@ class OrgRead(BaseModel):
     quota_monitors: int | None = None
     quota_members: int | None = None
     status_page_enabled: bool = False
+    alert_emails: list[str] = Field(default_factory=list)
 
 
 class OrgCreate(BaseModel):
@@ -68,6 +78,7 @@ class OrgUpdate(BaseModel):
     quota_monitors: int | None = Field(default=None, ge=0)
     quota_members: int | None = Field(default=None, ge=1)
     status_page_enabled: bool | None = None
+    alert_emails: list[EmailStr] | None = Field(default=None, max_length=10)
 
 
 class OrgMemberRead(BaseModel):
@@ -341,3 +352,4 @@ class DeploymentLimits(BaseModel):
 class MetaRead(BaseModel):
     deployment_mode: Literal["team", "enterprise"]
     limits: DeploymentLimits | None = None
+    email_enabled: bool = False

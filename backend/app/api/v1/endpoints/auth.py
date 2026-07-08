@@ -1,18 +1,34 @@
+import hashlib
+import secrets
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.api.deps import OrgContext, get_current_org_member
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.core.ratelimit import get_login_limiter, get_register_limiter
+from app.core.ratelimit import get_forgot_password_limiter, get_login_limiter, get_register_limiter
 from app.core.security import create_access_token, hash_password, verify_password
-from app.models import OrgMember, User
-from app.schemas import MeRead, Token, UserCreate, UserLogin, UserOrganizationRead, UserRead
+from app.models import OrgMember, PasswordResetToken, User
+from app.schemas import (
+    ForgotPasswordRequest,
+    MeRead,
+    ResetPasswordRequest,
+    Token,
+    UserCreate,
+    UserLogin,
+    UserOrganizationRead,
+    UserRead,
+)
 from app.services.audit import record
+from app.services.email import send_email
 from app.services.orgs import enforce_member_quota, ensure_membership, get_or_create_default_org
 
 router = APIRouter()
+
+RESET_TOKEN_TTL = timedelta(hours=1)
 
 
 def client_ip(request: Request) -> str:
@@ -77,6 +93,71 @@ def login(payload: UserLogin, request: Request, db: Session = Depends(get_db)) -
     )
     extra_claims = {"org_id": org_id} if org_id is not None else None
     return Token(access_token=create_access_token(str(user.id), extra_claims=extra_claims))
+
+
+@router.post("/forgot-password", status_code=status.HTTP_204_NO_CONTENT)
+def forgot_password(payload: ForgotPasswordRequest, request: Request, db: Session = Depends(get_db)) -> None:
+    # всегда 204 — существование аккаунта не раскрывается
+    enforce_rate_limit(get_forgot_password_limiter(), f"forgot:{client_ip(request)}")
+    user = db.scalar(select(User).where(User.email == payload.email.lower()))
+    if not user:
+        return
+    now = datetime.now(timezone.utc)
+    # одновременно активен один токен — старые неиспользованные гасим
+    db.execute(
+        update(PasswordResetToken)
+        .where(PasswordResetToken.user_id == user.id, PasswordResetToken.used_at.is_(None))
+        .values(used_at=now)
+    )
+    token = secrets.token_urlsafe(32)
+    db.add(
+        PasswordResetToken(
+            user_id=user.id,
+            token_hash=hashlib.sha256(token.encode("utf-8")).hexdigest(),
+            expires_at=now + RESET_TOKEN_TTL,
+        )
+    )
+    db.commit()
+    reset_link = f"{get_settings().app_base_url}/reset-password?token={token}"
+    send_email(
+        user.email,
+        "Reset your PWA Monitor password",
+        "Use the link below to reset your PWA Monitor password:\n\n"
+        f"{reset_link}\n\n"
+        "The link expires in 1 hour. If you did not request a reset, ignore this email.\n",
+    )
+
+
+@router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)) -> None:
+    token_hash = hashlib.sha256(payload.token.encode("utf-8")).hexdigest()
+    reset = db.scalar(select(PasswordResetToken).where(PasswordResetToken.token_hash == token_hash))
+    invalid = HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired token")
+    if not reset or reset.used_at is not None:
+        raise invalid
+    # sqlite отдаёт naive datetime — нормализуем к UTC перед сравнением
+    expires_at = reset.expires_at if reset.expires_at.tzinfo else reset.expires_at.replace(tzinfo=timezone.utc)
+    if expires_at <= datetime.now(timezone.utc):
+        raise invalid
+    user = db.get(User, reset.user_id)
+    if not user:
+        raise invalid
+    user.hashed_password = hash_password(payload.new_password)
+    reset.used_at = datetime.now(timezone.utc)
+    org_id = db.scalar(
+        select(OrgMember.org_id).where(OrgMember.user_id == user.id).order_by(OrgMember.id).limit(1)
+    )
+    if org_id is not None:
+        record(
+            db,
+            org_id=org_id,
+            user_id=user.id,
+            action="auth.password_reset",
+            entity="user",
+            entity_id=str(user.id),
+            payload={},
+        )
+    db.commit()
 
 
 @router.get("/me", response_model=MeRead)
