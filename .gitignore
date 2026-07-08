@@ -224,3 +224,10 @@ PLAN.md
 prd.md
 node_modules
 dist
+
+# Playwright artifacts
+frontend/test-results/
+frontend/playwright-report/
+
+# Local sqlite databases (dev/e2e runs)
+backend/*.db
