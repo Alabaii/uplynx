@@ -1,0 +1,7 @@
+/* Open Sans (self-hosted, offline-PWA): latin + cyrillic, weights 400/500/600 */
+@import '@fontsource/open-sans/latin-400.css';
+@import '@fontsource/open-sans/latin-500.css';
+@import '@fontsource/open-sans/latin-600.css';
+@import '@fontsource/open-sans/cyrillic-400.css';
+@import '@fontsource/open-sans/cyrillic-500.css';
+@import '@fontsource/open-sans/cyrillic-600.css';

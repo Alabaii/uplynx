@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import {
   AlertTriangle,
@@ -14,13 +14,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { StatusBadge } from '../components/StatusBadge';
-import {
-  getDashboardSummary,
-  getMonitorHealthTimeline,
-  getMonitors,
-  type MonitorStatus,
-  type MonitorType,
-} from '../data/mockMonitoring';
+import { getStatusLabel, listMonitors, type Monitor, type MonitorStatus, type MonitorType } from '../api';
 import { cn } from '../utils/cn';
 
 const typeFilters: Array<{ value: 'all' | MonitorType; label: string }> = [
@@ -35,23 +29,53 @@ const statusFilters: Array<{ value: 'all' | MonitorStatus; label: string }> = [
   { value: 'degraded', label: 'Degraded' },
   { value: 'down', label: 'Down' },
   { value: 'paused', label: 'Paused' },
+  { value: 'pending', label: 'Pending' },
 ];
-
-const locationFilters = [
-  { value: 'all', label: 'All regions' },
-  { value: 'eu', label: 'Europe' },
-  { value: 'us', label: 'US' },
-  { value: 'local', label: 'Local' },
-] as const;
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const monitors = getMonitors();
-  const summary = getDashboardSummary();
+  const [monitors, setMonitors] = useState<Monitor[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | MonitorType>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | MonitorStatus>('all');
-  const [locationFilter, setLocationFilter] = useState<(typeof locationFilters)[number]['value']>('all');
+
+  useEffect(() => {
+    let ignore = false;
+
+    listMonitors()
+      .then((items) => {
+        if (!ignore) {
+          setMonitors(items);
+          setError('');
+        }
+      })
+      .catch((error) => {
+        if (!ignore) {
+          setError(error instanceof Error ? error.message : 'Unable to load monitors');
+        }
+      })
+      .finally(() => {
+        if (!ignore) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  const summary = useMemo(() => {
+    const total = monitors.length;
+    const down = monitors.filter((monitor) => monitor.status === 'down').length;
+    const degraded = monitors.filter((monitor) => monitor.status === 'degraded').length;
+    const paused = monitors.filter((monitor) => monitor.status === 'paused').length;
+    const averageUptime = total === 0 ? 100 : Math.round(((total - down - degraded * 0.5) / total) * 1000) / 10;
+
+    return { averageUptime, down, degraded, paused };
+  }, [monitors]);
 
   const filteredMonitors = useMemo(
     () =>
@@ -60,33 +84,25 @@ export default function Dashboard() {
         const matchesQuery =
           normalizedQuery.length === 0 ||
           monitor.name.toLowerCase().includes(normalizedQuery) ||
-          monitor.url.toLowerCase().includes(normalizedQuery) ||
-          monitor.location.toLowerCase().includes(normalizedQuery);
+          (monitor.url ?? '').toLowerCase().includes(normalizedQuery);
         const matchesType = typeFilter === 'all' || monitor.type === typeFilter;
         const matchesStatus = statusFilter === 'all' || monitor.status === statusFilter;
-        const matchesLocation =
-          locationFilter === 'all' ||
-          (locationFilter === 'eu' && monitor.location.startsWith('eu-')) ||
-          (locationFilter === 'us' && monitor.location.startsWith('us-')) ||
-          (locationFilter === 'local' && monitor.location.startsWith('local'));
 
-        return matchesQuery && matchesType && matchesStatus && matchesLocation;
+        return matchesQuery && matchesType && matchesStatus;
       }),
-    [locationFilter, monitors, query, statusFilter, typeFilter]
+    [monitors, query, statusFilter, typeFilter]
   );
-
-  const highlightedIncident = monitors.find((monitor) => monitor.status === 'down') ?? monitors[0];
 
   return (
     <div className="space-y-6">
-      <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-[linear-gradient(135deg,_#0f172a_0%,_#113b3a_45%,_#d7efe8_160%)] p-6 text-white shadow-[0_30px_80px_rgba(15,23,42,0.14)]">
+      <section className="overflow-hidden rounded-lg bg-card p-6 shadow-card">
         <div className="flex flex-col gap-8 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-3xl">
-            <p className="text-sm font-semibold uppercase tracking-[0.26em] text-teal-200">Operational overview</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">Состояние сервисов за период видно сразу</h1>
-            <p className="mt-3 text-sm leading-7 text-slate-200/90">
-              Карточки ниже показывают не только текущий статус, но и недавнюю историю работоспособности. Это удобнее
-              для быстрого triage, чем отдельные теги и декоративные элементы.
+            <p className="text-sm font-semibold text-primary">Operational overview</p>
+            <h1 className="mt-2 text-2xl font-semibold leading-8 text-foreground">Fleet status at a glance</h1>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">
+              Every card below reflects the live state reported by the checks pipeline. Open a service to see its
+              response history, or jump straight into the config to change what is monitored.
             </p>
           </div>
 
@@ -94,7 +110,7 @@ export default function Dashboard() {
             <button
               type="button"
               onClick={() => navigate('/config')}
-              className="inline-flex h-11 items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-medium text-white transition-colors hover:bg-white/16"
+              className="inline-flex items-center gap-2 rounded-lg bg-secondary px-4 py-[11px] text-base font-medium leading-none text-primary transition-colors hover:bg-accent"
             >
               <Workflow className="h-4 w-4" />
               Open config
@@ -102,7 +118,7 @@ export default function Dashboard() {
             <button
               type="button"
               onClick={() => navigate('/monitors/new')}
-              className="inline-flex h-11 items-center gap-2 rounded-xl bg-white px-4 text-sm font-semibold text-slate-950 transition-colors hover:bg-teal-50"
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-[11px] text-base font-medium leading-none text-primary-foreground transition-colors hover:bg-primary-hover"
             >
               <Plus className="h-4 w-4" />
               New monitor
@@ -112,50 +128,72 @@ export default function Dashboard() {
       </section>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard title="Fleet health" value={`${summary.averageUptime}%`} hint="Average uptime over the last 24h" icon={Waves} />
+        <SummaryCard
+          title="Fleet health"
+          value={monitors.length === 0 ? '—' : `${summary.averageUptime}%`}
+          hint={monitors.length === 0 ? 'No monitors yet' : 'Share of healthy monitors right now'}
+          icon={Waves}
+        />
         <SummaryCard title="Down monitors" value={String(summary.down)} hint="Require immediate action" icon={Siren} />
         <SummaryCard title="Degraded" value={String(summary.degraded)} hint="Slow or unstable checks" icon={AlertTriangle} />
         <SummaryCard title="Paused" value={String(summary.paused)} hint="Temporarily excluded from checks" icon={Clock3} />
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]">
+      <div>
         <Card className="overflow-hidden">
-          <CardHeader className="gap-4 border-b border-slate-200 bg-slate-50/70">
+          <CardHeader className="gap-4 border-b border-border">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div>
-                <CardTitle className="text-xl">Service roster</CardTitle>
-                <p className="mt-2 text-sm text-slate-600">Поиск и фильтры вместо облака тегов.</p>
+                <CardTitle>Service roster</CardTitle>
+                <p className="mt-2 text-sm text-muted-foreground">Search and filter the monitored services.</p>
               </div>
 
               <div className="relative w-full xl:max-w-sm">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-placeholder" />
                 <Input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search by name, URL, region..."
+                  placeholder="Search by name or URL..."
                   className="pl-9"
                 />
               </div>
             </div>
 
             <div className="flex flex-col gap-3">
-              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+              <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
                 <SlidersHorizontal className="h-3.5 w-3.5" />
                 Filters
               </div>
               <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
                 <FilterGroup values={statusFilters} activeValue={statusFilter} onChange={setStatusFilter} />
                 <FilterGroup values={typeFilters} activeValue={typeFilter} onChange={setTypeFilter} />
-                <FilterGroup values={locationFilters} activeValue={locationFilter} onChange={setLocationFilter} />
               </div>
             </div>
           </CardHeader>
 
           <CardContent className="space-y-4 p-4 md:p-6">
-            {filteredMonitors.length === 0 ? (
-              <div className="rounded-[1.5rem] border border-dashed border-slate-200 bg-slate-50 p-12 text-center">
-                <p className="text-lg font-semibold text-slate-900">No monitors match these filters</p>
-                <p className="mt-2 text-sm text-slate-500">Попробуйте сбросить один из фильтров или изменить запрос.</p>
+            {loading ? (
+              <div className="rounded-lg border border-dashed border-border bg-secondary p-12 text-center">
+                <p className="text-lg font-semibold text-foreground">Loading monitors...</p>
+              </div>
+            ) : error ? (
+              <div className="rounded-lg bg-destructive/10 p-12 text-center">
+                <p className="text-lg font-semibold text-destructive">Unable to load monitors</p>
+                <p className="mt-2 text-sm text-destructive">{error}</p>
+              </div>
+            ) : filteredMonitors.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-border bg-secondary p-12 text-center">
+                {monitors.length === 0 ? (
+                  <>
+                    <p className="text-lg font-semibold text-foreground">No monitors yet</p>
+                    <p className="mt-2 text-sm text-placeholder">Create your first monitor or upload a config to get started.</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-lg font-semibold text-foreground">No monitors match these filters</p>
+                    <p className="mt-2 text-sm text-placeholder">Try resetting a filter or adjusting the search query.</p>
+                  </>
+                )}
               </div>
             ) : (
               filteredMonitors.map((monitor) => (
@@ -163,43 +201,32 @@ export default function Dashboard() {
                   key={monitor.id}
                   type="button"
                   onClick={() => navigate(`/monitors/${monitor.id}`)}
-                  className="w-full rounded-[1.5rem] border border-slate-200 bg-white p-5 text-left transition-all hover:-translate-y-0.5 hover:border-teal-200 hover:shadow-[0_18px_40px_rgba(15,23,42,0.08)]"
+                  className="w-full rounded-lg bg-card p-5 text-left shadow-card transition-shadow hover:shadow-floating"
                 >
                   <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-3">
-                        <h3 className="text-lg font-semibold text-slate-950">{monitor.name}</h3>
+                        <h3 className="text-sm font-semibold leading-5 text-primary">{monitor.name}</h3>
                         <StatusBadge status={monitor.status} />
-                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-600">
+                        <span className="rounded-lg bg-secondary px-3 py-1 text-xs font-semibold uppercase text-muted-foreground">
                           {monitor.type}
                         </span>
                       </div>
 
-                      <p className="mt-2 truncate text-sm text-slate-600">{monitor.url}</p>
-
-                      <div className="mt-4 rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Uptime period</p>
-                            <p className="mt-1 text-sm text-slate-700">Последние 20 интервалов проверки</p>
-                          </div>
-                          <p className="text-sm font-semibold text-slate-900">{monitor.uptime24h}%</p>
-                        </div>
-                        <HealthTimeline monitorId={monitor.id} />
-                      </div>
+                      <p className="mt-2 truncate text-sm text-muted-foreground">{monitor.url}</p>
                     </div>
 
                     <div className="grid min-w-[16rem] grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-2">
-                      <Stat label="Response" value={monitor.responseTimeMs ? `${monitor.responseTimeMs} ms` : 'No data'} />
-                      <Stat label="Region" value={monitor.location} />
-                      <Stat label="Interval" value={`${Math.round(monitor.intervalSeconds / 60)} min`} />
-                      <Stat label="Last check" value={monitor.lastCheckedAt.slice(11, 16)} />
+                      <Stat label="Status" value={getStatusLabel(monitor.status)} />
+                      <Stat label="Type" value={monitor.type.toUpperCase()} />
+                      <Stat label="Interval" value={formatInterval(monitor.interval)} />
+                      <Stat label="Checks" value={monitor.enabled ? 'Enabled' : 'Paused'} />
                     </div>
                   </div>
 
-                  <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4">
-                    <p className="text-sm text-slate-600">{monitor.summary}</p>
-                    <span className="inline-flex items-center gap-1 text-sm font-semibold text-teal-800">
+                  <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
+                    <p className="text-sm text-muted-foreground">{monitor.enabled ? 'Scheduled checks enabled' : 'Checks paused'}</p>
+                    <span className="inline-flex items-center gap-1 text-sm font-semibold text-primary">
                       Open service
                       <ChevronRight className="h-4 w-4" />
                     </span>
@@ -209,44 +236,6 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
-
-        <div className="space-y-6">
-          <Card className="overflow-hidden border-rose-200 bg-[linear-gradient(180deg,_#fff7f7_0%,_#fff2f2_100%)]">
-            <CardHeader>
-              <CardTitle className="text-xl text-rose-900">Incident in focus</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <StatusBadge status={highlightedIncident.status} className="bg-white" />
-              <div>
-                <p className="text-lg font-semibold text-slate-950">{highlightedIncident.name}</p>
-                <p className="mt-2 text-sm leading-6 text-slate-600">{highlightedIncident.summary}</p>
-              </div>
-              <div className="rounded-2xl border border-rose-200 bg-white px-4 py-3 text-sm text-slate-700">
-                Last incident started at {highlightedIncident.lastIncidentAt ?? 'No incident timestamp'}.
-              </div>
-              <button
-                type="button"
-                onClick={() => navigate(`/monitors/${highlightedIncident.id}/history`)}
-                className="inline-flex items-center gap-2 text-sm font-semibold text-rose-800 hover:text-rose-700"
-              >
-                Open history
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-xl">Quick read</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm text-slate-600">
-              <ChecklistRow checked label="Each service card shows a visual uptime period strip." />
-              <ChecklistRow checked label="Tags removed from the main list in favor of filters." />
-              <ChecklistRow checked label="Clicks use direct navigation handlers for monitor and config screens." />
-              <ChecklistRow checked label="List is quieter visually and focuses on operational signal." />
-            </CardContent>
-          </Card>
-        </div>
       </div>
     </div>
   );
@@ -264,48 +253,30 @@ function SummaryCard({
   icon: typeof Waves;
 }) {
   return (
-    <Card className="border-slate-200 bg-white">
+    <Card>
       <CardContent className="space-y-4 p-5">
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-teal-50 text-teal-700">
+        <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-accent text-primary">
           <Icon className="h-5 w-5" />
         </div>
         <div>
-          <p className="text-sm text-slate-500">{title}</p>
-          <p className="mt-1 text-3xl font-semibold text-slate-950">{value}</p>
-          <p className="mt-2 text-xs text-slate-500">{hint}</p>
+          <p className="text-sm text-muted-foreground">{title}</p>
+          <p className="mt-1 text-2xl font-semibold leading-8 text-foreground">{value}</p>
+          <p className="mt-2 text-xs text-placeholder">{hint}</p>
         </div>
       </CardContent>
     </Card>
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-[1rem] border border-slate-200 bg-slate-50 px-3 py-3">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-slate-900">{value}</p>
-    </div>
-  );
+function formatInterval(seconds: number): string {
+  return seconds < 60 ? `${seconds} s` : `${Math.round(seconds / 60)} min`;
 }
 
-function HealthTimeline({ monitorId }: { monitorId: string }) {
-  const timeline = getMonitorHealthTimeline(monitorId);
-
+function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="mt-4 grid grid-cols-10 gap-1">
-      {timeline.map((status, index) => (
-        <div
-          key={`${monitorId}-${index}`}
-          className={cn(
-            'h-3 rounded-full',
-            status === 'up' && 'bg-emerald-500',
-            status === 'degraded' && 'bg-amber-400',
-            status === 'down' && 'bg-rose-500',
-            status === 'paused' && 'bg-slate-300'
-          )}
-          title={`Interval ${index + 1}: ${status}`}
-        />
-      ))}
+    <div className="rounded-lg bg-secondary px-3 py-3">
+      <p className="text-[11px] font-semibold text-placeholder">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-foreground">{value}</p>
     </div>
   );
 }
@@ -327,10 +298,10 @@ function FilterGroup<T extends string>({
           type="button"
           onClick={() => onChange(item.value)}
           className={cn(
-            'rounded-full border px-3 py-2 text-sm font-medium transition-colors',
+            'rounded-lg px-3 py-1.5 text-[13px] leading-5 transition-colors',
             activeValue === item.value
-              ? 'border-teal-900 bg-teal-900 text-white'
-              : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+              ? 'bg-accent font-semibold text-primary'
+              : 'bg-secondary text-foreground hover:text-primary'
           )}
         >
           {item.label}
@@ -340,11 +311,3 @@ function FilterGroup<T extends string>({
   );
 }
 
-function ChecklistRow({ checked, label }: { checked: boolean; label: string }) {
-  return (
-    <div className="flex items-start gap-3 rounded-2xl border border-slate-200 p-3">
-      <div className={cn('mt-0.5 h-2.5 w-2.5 rounded-full', checked ? 'bg-emerald-500' : 'bg-slate-300')} />
-      <p>{label}</p>
-    </div>
-  );
-}
