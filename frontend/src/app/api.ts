@@ -168,7 +168,15 @@ export type OrganizationInfo = {
   name: string;
   slug: string;
   role: OrgRole;
+  status_page_enabled: boolean;
 };
+
+export function updateCurrentOrg(payload: { status_page_enabled?: boolean }) {
+  return request<OrganizationInfo>('/orgs/current', {
+    method: 'PATCH',
+    body: payload,
+  });
+}
 
 export type OrgMember = {
   user_id: number;
@@ -286,6 +294,26 @@ export type MonitorUptime = {
 
 export function getMonitorsUptime(range: '24h' | '7d' | '30d' = '24h') {
   return request<MonitorUptime[]>(`/monitors/uptime?range=${range}`);
+}
+
+export type PublicStatusOverall = 'operational' | 'degraded' | 'down';
+
+export type PublicStatusMonitor = {
+  name: string;
+  status: MonitorStatus;
+  uptime_pct: number | null;
+  last_check_at: string | null;
+};
+
+export type PublicStatus = {
+  organization: string;
+  updated_at: string;
+  overall: PublicStatusOverall;
+  monitors: PublicStatusMonitor[];
+};
+
+export function getPublicStatus(slug: string) {
+  return request<PublicStatus>(`/status/${encodeURIComponent(slug)}`, { auth: false });
 }
 
 export type TelegramIntegration = {

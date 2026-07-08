@@ -38,6 +38,7 @@ class UserOrganizationRead(BaseModel):
     name: str
     slug: str
     role: str
+    status_page_enabled: bool
 
 
 class MeRead(UserRead):
@@ -51,6 +52,7 @@ class OrgRead(BaseModel):
     role: OrgRole
     quota_monitors: int | None = None
     quota_members: int | None = None
+    status_page_enabled: bool = False
 
 
 class OrgCreate(BaseModel):
@@ -63,6 +65,7 @@ class OrgUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     quota_monitors: int | None = Field(default=None, ge=0)
     quota_members: int | None = Field(default=None, ge=1)
+    status_page_enabled: bool | None = None
 
 
 class OrgMemberRead(BaseModel):
@@ -211,6 +214,24 @@ class MonitorUptimeRead(BaseModel):
     last_check_at: datetime | None
     last_status: MonitorStatus | None
     last_response_ms: int | None
+
+
+PublicOverallStatus = Literal["operational", "degraded", "down"]
+
+
+class PublicStatusMonitor(BaseModel):
+    # публичная страница: только имя и статус, никаких url/slug/id
+    name: str
+    status: MonitorStatus
+    uptime_pct: float | None
+    last_check_at: datetime | None
+
+
+class PublicStatusRead(BaseModel):
+    organization: str
+    updated_at: datetime
+    overall: PublicOverallStatus
+    monitors: list[PublicStatusMonitor]
 
 
 class CheckTask(BaseModel):

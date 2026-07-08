@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Activity, Trash2, UserPlus, Users } from 'lucide-react';
+import { Activity, ExternalLink, Globe, Trash2, UserPlus, Users } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
@@ -10,6 +10,7 @@ import {
   listAuditEvents,
   listOrgMembers,
   removeOrgMember,
+  updateCurrentOrg,
   updateMemberRole,
   type AuditEvent,
   type OrgMember,
@@ -60,6 +61,10 @@ export default function Team() {
   const [myUserId, setMyUserId] = useState<number | null>(null);
   const [myRole, setMyRole] = useState<OrgRole>('viewer');
   const [orgName, setOrgName] = useState('My team');
+  const [orgSlug, setOrgSlug] = useState('');
+  const [statusPageEnabled, setStatusPageEnabled] = useState(false);
+  const [statusPageError, setStatusPageError] = useState('');
+  const [isTogglingStatusPage, setIsTogglingStatusPage] = useState(false);
   const [newEmail, setNewEmail] = useState('');
   const [newRole, setNewRole] = useState<OrgRole>('member');
   const [isAdding, setIsAdding] = useState(false);
@@ -78,6 +83,8 @@ export default function Team() {
           setMyUserId(me.id);
           setMyRole(me.organization?.role ?? 'viewer');
           setOrgName(me.organization?.name ?? 'My team');
+          setOrgSlug(me.organization?.slug ?? '');
+          setStatusPageEnabled(me.organization?.status_page_enabled ?? false);
           setMembers(memberList);
           setError('');
         }
@@ -145,6 +152,21 @@ export default function Team() {
       setMessage(`${updated.email} is now ${updated.role}.`);
     } catch (error) {
       setError(error instanceof ApiError ? error.message : 'Unable to change role');
+    }
+  };
+
+  const handleToggleStatusPage = async () => {
+    setIsTogglingStatusPage(true);
+    setStatusPageError('');
+
+    try {
+      const updated = await updateCurrentOrg({ status_page_enabled: !statusPageEnabled });
+
+      setStatusPageEnabled(updated.status_page_enabled);
+    } catch (error) {
+      setStatusPageError(error instanceof ApiError ? error.message : 'Unable to update the status page');
+    } finally {
+      setIsTogglingStatusPage(false);
     }
   };
 
@@ -293,6 +315,48 @@ export default function Team() {
           )}
         </CardContent>
       </Card>
+
+      {myRole === 'owner' && (
+        <Card>
+          <CardHeader className="border-b border-border">
+            <CardTitle className="flex items-center gap-2">
+              <Globe className="h-5 w-5 text-primary" />
+              Public status page
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 p-6">
+            <p className="text-sm text-muted-foreground">
+              Share a read-only page with the live status of your monitors. No sign-in required, monitor URLs stay
+              private.
+            </p>
+
+            {statusPageError && (
+              <div className="rounded-lg bg-destructive/10 p-4 text-sm text-destructive">{statusPageError}</div>
+            )}
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <Button
+                variant={statusPageEnabled ? 'outline' : 'primary'}
+                isLoading={isTogglingStatusPage}
+                onClick={handleToggleStatusPage}
+              >
+                {statusPageEnabled ? 'Disable status page' : 'Enable status page'}
+              </Button>
+              {statusPageEnabled && orgSlug && (
+                <a
+                  href={`/status/${orgSlug}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:text-primary-hover"
+                >
+                  Open /status/{orgSlug}
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {canManage && (
         <Card className="overflow-hidden">

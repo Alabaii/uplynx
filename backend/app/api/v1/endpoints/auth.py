@@ -58,5 +58,11 @@ def me(ctx: OrgContext = Depends(get_current_org_member)) -> MeRead:
     return MeRead(
         id=ctx.user.id,
         email=ctx.user.email,
-        organization=UserOrganizationRead(id=ctx.org.id, name=ctx.org.name, slug=ctx.org.slug, role=ctx.role),
+        organization=UserOrganizationRead(
+            id=ctx.org.id,
+            name=ctx.org.name,
+            slug=ctx.org.slug,
+            role=ctx.role,
+            status_page_enabled=ctx.org.status_page_enabled,
+        ),
     )
