@@ -231,3 +231,24 @@ frontend/playwright-report/
 
 # Local sqlite databases (dev/e2e runs)
 backend/*.db
+
+# AI-ассистенты / vibe coding — локальные конфиги и артефакты
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+.mcp.json
+.cursor/
+.cursorrules
+.cursorignore
+.windsurf/
+.windsurfrules
+.aider*
+.cline/
+.clinerules
+.roo/
+.gemini/
+GEMINI.md
+.codex/
+AGENTS.md
+.specstory/
+.planning/
