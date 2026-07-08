@@ -13,6 +13,8 @@ import {
 import { clearSession, getSessionEmail } from '../auth';
 import { OfflineBanner } from '../components/OfflineBanner';
 import { getMe } from '../api';
+import { useDeploymentMode } from '../meta-context';
+import { OrgSwitcher } from './OrgSwitcher';
 import { usePWA } from '../pwa/usePWA';
 import { cn } from '../utils/cn';
 
@@ -31,6 +33,8 @@ export function AppLayout() {
   const [isOffline, setIsOffline] = useState(() => typeof navigator !== 'undefined' && !navigator.onLine);
   const [email, setEmail] = useState(() => getSessionEmail() ?? '');
   const [orgName, setOrgName] = useState('My team');
+  const [orgId, setOrgId] = useState<number | null>(null);
+  const isEnterprise = useDeploymentMode() === 'enterprise';
 
   useEffect(() => {
     let ignore = false;
@@ -40,6 +44,7 @@ export function AppLayout() {
         if (!ignore) {
           setEmail(user.email);
           setOrgName(user.organization?.name ?? 'My team');
+          setOrgId(user.organization?.id ?? null);
         }
       })
       .catch(() => {
@@ -90,8 +95,14 @@ export function AppLayout() {
           </div>
 
           <div className="mt-6 rounded-lg bg-secondary p-4">
-            <p className="text-xs text-placeholder">Active workspace</p>
-            <p className="mt-1 text-sm font-semibold text-foreground">{orgName}</p>
+            {isEnterprise ? (
+              <OrgSwitcher orgName={orgName} currentOrgId={orgId} />
+            ) : (
+              <>
+                <p className="text-xs text-placeholder">Active workspace</p>
+                <p className="mt-1 text-sm font-semibold text-foreground">{orgName}</p>
+              </>
+            )}
             <p className="mt-0.5 truncate text-xs text-muted-foreground">{email || 'Signed in'}</p>
             <div className="mt-3 flex flex-wrap gap-2">
               <span className="rounded-lg bg-accent px-2.5 py-1 text-xs font-semibold text-primary">

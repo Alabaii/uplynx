@@ -22,6 +22,7 @@ import {
   type MonitorType,
   type MonitorUptime,
 } from '../api';
+import { useMeta } from '../meta-context';
 import { cn } from '../utils/cn';
 import { formatRelativeTime } from '../utils/time';
 
@@ -42,6 +43,8 @@ const statusFilters: Array<{ value: 'all' | MonitorStatus; label: string }> = [
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const meta = useMeta();
+  const monitorLimit = meta?.deployment_mode === 'team' ? meta.limits?.max_monitors ?? null : null;
   const [monitors, setMonitors] = useState<Monitor[]>([]);
   const [uptimeById, setUptimeById] = useState<Record<string, MonitorUptime>>({});
   const [loading, setLoading] = useState(true);
@@ -160,7 +163,14 @@ export default function Dashboard() {
           <CardHeader className="gap-4 border-b border-border">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div>
-                <CardTitle>Service roster</CardTitle>
+                <div className="flex flex-wrap items-center gap-2">
+                  <CardTitle>Service roster</CardTitle>
+                  {monitorLimit !== null && (
+                    <span className="text-sm text-muted-foreground">
+                      {monitors.length} / {monitorLimit} monitors
+                    </span>
+                  )}
+                </div>
                 <p className="mt-2 text-sm text-muted-foreground">Search and filter the monitored services.</p>
               </div>
 
