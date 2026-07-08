@@ -349,6 +349,19 @@ export default function MonitorDetails() {
                   </p>
                 </div>
                 {check.error && <p className="mt-3 text-xs leading-5 text-destructive">{check.error}</p>}
+                {check.details.failed_step && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Failed at step {check.details.failed_step.index}: {check.details.failed_step.action}{' '}
+                    {check.details.failed_step.selector ?? check.details.failed_step.url ?? check.details.failed_step.contains ?? ''}
+                  </p>
+                )}
+                {check.details.screenshot && (
+                  <img
+                    src={`data:image/jpeg;base64,${check.details.screenshot}`}
+                    alt={`Screenshot of failed check at ${new Date(check.timestamp).toLocaleString()}`}
+                    className="mt-3 max-h-40 rounded-lg border border-border"
+                  />
+                )}
               </div>
             ))
           )}

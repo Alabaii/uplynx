@@ -1,9 +1,14 @@
+import base64
+import os
+import re
 import time
 from typing import Any, Protocol
 
 import httpx
 
 from app.schemas import CheckTask
+
+ENV_PLACEHOLDER_RE = re.compile(r"\$\{([A-Z0-9_]+)\}")
 
 
 class BrowserRunner(Protocol):
@@ -45,6 +50,81 @@ async def run_http_check(task: CheckTask) -> dict[str, Any]:
         return {"status": "down", "response_time_ms": None, "error": str(exc), "details": {}}
 
 
+def resolve_env_placeholders(step: dict) -> dict:
+    """Подставляет плейсхолдеры ${VAR_NAME} из окружения воркера (PRD 5.10)."""
+
+    def substitute(match: re.Match[str]) -> str:
+        name = match.group(1)
+        value = os.environ.get(name)
+        if value is None:
+            raise ValueError(f"environment variable '{name}' is not set")
+        return value
+
+    resolved = dict(step)
+    for key in ("url", "selector", "text", "value", "contains"):
+        if isinstance(resolved.get(key), str):
+            resolved[key] = ENV_PLACEHOLDER_RE.sub(substitute, resolved[key])
+    return resolved
+
+
+class StepFailure(Exception):
+    """Падение конкретного шага сценария: хранит индекс и исходный шаг для диагностики."""
+
+    def __init__(self, index: int, step: dict[str, Any], original: Exception) -> None:
+        super().__init__(f"step {index} ({step.get('action')}): {original}")
+        self.index = index
+        self.step = step
+        self.original = original
+
+
+def failed_step_details(failure: StepFailure) -> dict[str, Any]:
+    details: dict[str, Any] = {"index": failure.index, "action": failure.step.get("action")}
+    for key in ("selector", "url", "contains"):
+        if failure.step.get(key):
+            details[key] = failure.step[key]
+    return details
+
+
+async def capture_screenshot(page: Any) -> str | None:
+    try:
+        raw = await page.screenshot(type="jpeg", quality=50)
+        return base64.b64encode(raw).decode("ascii")
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def execute_steps(page: Any, steps: list[dict[str, Any]]) -> None:
+    for index, raw_step in enumerate(steps, start=1):
+        try:
+            step = resolve_env_placeholders(raw_step)
+            action = step.get("action")
+            if action == "goto":
+                await page.goto(step["url"])
+            elif action == "click":
+                await page.click(step["selector"])
+            elif action == "type":
+                await page.fill(step["selector"], step.get("value") or step.get("text") or "")
+            elif action == "wait_for":
+                await page.wait_for_selector(step["selector"], state="visible")
+            elif action == "assert_text":
+                text = step["text"]
+                if step.get("selector"):
+                    content = await page.locator(step["selector"]).inner_text()
+                else:
+                    content = await page.content()
+                if text not in content:
+                    # в сообщении — сырое значение шага: подставленный секрет не должен утекать в историю
+                    raise AssertionError(f"text not found: {raw_step.get('text')}")
+            elif action == "assert_url":
+                contains = step["contains"]
+                if contains not in page.url:
+                    raise AssertionError(f"url does not contain '{raw_step.get('contains')}': {page.url}")
+            else:
+                raise ValueError(f"unsupported browser action: {action}")
+        except Exception as exc:  # noqa: BLE001
+            raise StepFailure(index, raw_step, exc) from exc
+
+
 class PlaywrightBrowserRunner:
     async def run(self, task: CheckTask) -> dict[str, Any]:
         from playwright.async_api import async_playwright
@@ -54,25 +134,30 @@ class PlaywrightBrowserRunner:
         try:
             async with async_playwright() as p:
                 browser = await p.chromium.launch(headless=True)
-                page = await browser.new_page()
-                page.set_default_timeout(task.timeout_seconds * 1000)
-                for step in steps:
-                    action = step.get("action")
-                    if action == "goto":
-                        await page.goto(step["url"])
-                    elif action == "click":
-                        await page.click(step["selector"])
-                    elif action == "type":
-                        await page.fill(step["selector"], step.get("value") or step.get("text") or "")
-                    elif action == "assert_text":
-                        text = step["text"]
-                        content = await page.content()
-                        if text not in content:
-                            raise AssertionError(f"text not found: {text}")
-                    else:
-                        raise ValueError(f"unsupported browser action: {action}")
-                await browser.close()
-            return {"status": "up", "response_time_ms": int((time.perf_counter() - started) * 1000), "error": None, "details": {"steps": len(steps)}}
+                try:
+                    page = await browser.new_page()
+                    page.set_default_timeout(task.timeout_seconds * 1000)
+                    try:
+                        await execute_steps(page, steps)
+                    except StepFailure as failure:
+                        return {
+                            "status": "down",
+                            "response_time_ms": None,
+                            "error": str(failure),
+                            "details": {
+                                "steps": len(steps),
+                                "failed_step": failed_step_details(failure),
+                                "screenshot": await capture_screenshot(page),
+                            },
+                        }
+                    return {
+                        "status": "up",
+                        "response_time_ms": int((time.perf_counter() - started) * 1000),
+                        "error": None,
+                        "details": {"steps": len(steps), "final_url": page.url},
+                    }
+                finally:
+                    await browser.close()
         except Exception as exc:  # noqa: BLE001
             return {"status": "down", "response_time_ms": None, "error": str(exc), "details": {"steps": len(steps)}}
 

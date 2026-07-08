@@ -250,13 +250,24 @@ curl -X POST http://localhost:8000/api/v1/monitors \
     "interval": 300,
     "steps": [
       {"action": "goto", "url": "https://example.com/login"},
+      {"action": "wait_for", "selector": "#username"},
       {"action": "type", "selector": "#username", "text": "test@example.com"},
-      {"action": "type", "selector": "#password", "text": "password"},
+      {"action": "type", "selector": "#password", "text": "${MONITOR_PASSWORD}"},
       {"action": "click", "selector": "button[type=\"submit\"]"},
-      {"action": "assert_text", "text": "Welcome"}
+      {"action": "assert_url", "contains": "/dashboard"},
+      {"action": "assert_text", "selector": "h1", "text": "Welcome"}
     ]
   }'
 ```
+
+Поддерживаемые действия: `goto`, `click`, `type`, `wait_for` (дождаться появления элемента),
+`assert_url` (текущий URL содержит подстроку `contains`), `assert_text` (текст элемента по `selector`
+или всей страницы, если `selector` не задан).
+
+Плейсхолдеры вида `${MONITOR_PASSWORD}` подставляются из переменных окружения browser-воркера
+в момент выполнения шага — секреты не хранятся в конфиге и не попадают в историю проверок.
+Если переменная не задана, проверка падает с ошибкой `environment variable 'MONITOR_PASSWORD' is not set`.
+При падении шага в details результата сохраняются номер шага и JPEG-скриншот страницы.
 
 Проверьте логи browser worker:
 ```bash
@@ -386,18 +397,31 @@ npm run dev
 
 ## Продакшен деплой
 
-1. Создайте продакшен `.env` файл:
+Dev-compose поднимает фронтенд vite-dev-сервером — для сервера используйте
+продакшен-оверлей: фронтенд собирается в статику и раздаётся nginx-ом с
+same-origin прокси `/api` на бэкенд (PWA-фичи — offline и push — работают
+только в production-сборке и только по HTTPS).
+
+1. Создайте `.env` из `.env.example` и заполните секреты:
 ```bash
-cp .env.example .env.production
-# Отредактируйте все секреты
+cp .env.example .env
+# Обязательно: JWT_SECRET_KEY (длинная случайная строка),
+# SECRET_ENCRYPTION_KEY (Fernet: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"),
+# POSTGRES_PASSWORD и POSTGRES_APP_PASSWORD,
+# VAPID-ключи для push: python -m app.tools.vapid (из backend/)
 ```
 
-2. Запустите с продакшен конфигом:
+2. Запустите продакшен-стек:
 ```bash
-docker-compose --env-file .env.production up --build
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
 ```
+`ENVIRONMENT=production` включается автоматически (запуск с дефолтным
+JWT-секретом невозможен); порты postgres/rabbitmq наружу не публикуются;
+приложение доступно на `HTTP_PORT` (по умолчанию 80).
 
-3. Настройте reverse proxy (nginx) для SSL
+3. TLS: поставьте перед `HTTP_PORT` reverse-proxy с сертификатом — например,
+Caddy (`reverse_proxy localhost:80` + автоматический Let's Encrypt) или
+nginx + certbot. HTTPS обязателен для установки PWA и push-уведомлений.
 
 ## Безопасность
 

@@ -5,7 +5,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 MonitorType = Literal["http", "browser"]
 MonitorStatus = Literal["up", "down", "paused", "degraded", "pending"]
-BrowserAction = Literal["goto", "click", "type", "assert_text"]
+BrowserAction = Literal["goto", "click", "type", "assert_text", "wait_for", "assert_url"]
 OrgRole = Literal["owner", "admin", "member", "viewer"]
 # owner назначается только при создании организации; передача владения — вне скоупа
 AssignableOrgRole = Literal["admin", "member", "viewer"]
@@ -97,6 +97,7 @@ class BrowserStep(BaseModel):
     selector: str | None = None
     text: str | None = None
     value: str | None = None
+    contains: str | None = None
 
 
 class ExpectedHttp(BaseModel):

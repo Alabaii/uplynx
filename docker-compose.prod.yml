@@ -1,0 +1,31 @@
+# Продакшен-оверлей. Запуск:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
+#
+# Отличия от dev:
+#  - фронтенд собирается в статику и раздаётся nginx-ом (same-origin прокси /api
+#    на backend) — только так работают PWA-фичи (offline, push);
+#  - порты postgres/rabbitmq наружу не публикуются;
+#  - ENVIRONMENT по умолчанию production (запуск с дефолтным JWT-секретом невозможен).
+services:
+  postgres:
+    ports: !reset []
+
+  rabbitmq:
+    ports: !reset []
+
+  backend:
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+    ports: !reset []
+
+  frontend:
+    image: pwamonitor-frontend
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: /api/v1
+    command: !reset null
+    volumes: !reset []
+    ports: !override
+      - "${HTTP_PORT:-80}:80"
+    restart: unless-stopped
