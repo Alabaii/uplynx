@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.core.security import decrypt_secret, encrypt_secret
 from app.models import TelegramIntegration, User
 from app.schemas import TelegramConnect, TelegramRead, TelegramTestResponse
+from app.services.orgs import get_user_org
 from app.services.telegram import mask_token, send_telegram_message
 
 router = APIRouter()
@@ -42,6 +43,7 @@ def connect(
     else:
         integration = TelegramIntegration(
             user_id=user.id,
+            org_id=get_user_org(db, user).id,
             bot_token_secret=encrypt_secret(payload.bot_token),
             chat_id=payload.chat_id,
             alert_scopes=payload.alert_scopes,

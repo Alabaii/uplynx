@@ -28,6 +28,7 @@ export function AppLayout() {
   const { isInstalled } = usePWA();
   const [isOffline, setIsOffline] = useState(() => typeof navigator !== 'undefined' && !navigator.onLine);
   const [email, setEmail] = useState(() => getSessionEmail() ?? '');
+  const [orgName, setOrgName] = useState('My team');
 
   useEffect(() => {
     let ignore = false;
@@ -36,6 +37,7 @@ export function AppLayout() {
       .then((user) => {
         if (!ignore) {
           setEmail(user.email);
+          setOrgName(user.organization?.name ?? 'My team');
         }
       })
       .catch(() => {
@@ -87,7 +89,7 @@ export function AppLayout() {
 
           <div className="mt-6 rounded-lg bg-secondary p-4">
             <p className="text-xs text-placeholder">Active workspace</p>
-            <p className="mt-1 text-sm font-semibold text-foreground">My team</p>
+            <p className="mt-1 text-sm font-semibold text-foreground">{orgName}</p>
             <p className="mt-0.5 truncate text-xs text-muted-foreground">{email || 'Signed in'}</p>
             <div className="mt-3 flex flex-wrap gap-2">
               <span className="rounded-lg bg-accent px-2.5 py-1 text-xs font-semibold text-primary">
@@ -146,7 +148,7 @@ export function AppLayout() {
                   </div>
                   <div className="hidden min-w-0 md:block">
                     <p className="max-w-[14rem] truncate text-sm leading-5 text-foreground">{email || 'Operator'}</p>
-                    <p className="text-xs leading-4 text-placeholder">My team</p>
+                    <p className="text-xs leading-4 text-placeholder">{orgName}</p>
                   </div>
                 </div>
               </div>

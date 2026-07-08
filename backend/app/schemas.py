@@ -30,6 +30,17 @@ class UserRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class UserOrganizationRead(BaseModel):
+    id: int
+    name: str
+    slug: str
+    role: str
+
+
+class MeRead(UserRead):
+    organization: UserOrganizationRead
+
+
 class BrowserStep(BaseModel):
     action: BrowserAction
     url: str | None = None

@@ -2,12 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import OrgContext, get_current_org_member
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models import User
-from app.schemas import Token, UserCreate, UserLogin, UserRead
+from app.schemas import MeRead, Token, UserCreate, UserLogin, UserOrganizationRead, UserRead
+from app.services.orgs import ensure_membership, get_or_create_default_org
 
 router = APIRouter()
 
@@ -27,6 +28,8 @@ def register(payload: UserCreate, db: Session = Depends(get_db)) -> User:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
     user = User(email=payload.email.lower(), hashed_password=hash_password(payload.password))
     db.add(user)
+    db.flush()
+    ensure_membership(db, user, get_or_create_default_org(db))
     db.commit()
     db.refresh(user)
     return user
@@ -40,6 +43,10 @@ def login(payload: UserLogin, db: Session = Depends(get_db)) -> Token:
     return Token(access_token=create_access_token(str(user.id)))
 
 
-@router.get("/me", response_model=UserRead)
-def me(user: User = Depends(get_current_user)) -> User:
-    return user
+@router.get("/me", response_model=MeRead)
+def me(ctx: OrgContext = Depends(get_current_org_member)) -> MeRead:
+    return MeRead(
+        id=ctx.user.id,
+        email=ctx.user.email,
+        organization=UserOrganizationRead(id=ctx.org.id, name=ctx.org.name, slug=ctx.org.slug, role=ctx.role),
+    )

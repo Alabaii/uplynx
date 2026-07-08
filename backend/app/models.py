@@ -26,22 +26,26 @@ class User(Base):
     monitors: Mapped[list["Monitor"]] = relationship(back_populates="user")
 
 
-class Group(Base):
-    __tablename__ = "groups"
+class Organization(Base):
+    __tablename__ = "organizations"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    slug: Mapped[str] = mapped_column(String(160), unique=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    quota_monitors: Mapped[int | None] = mapped_column(Integer)
+    quota_members: Mapped[int | None] = mapped_column(Integer)
 
 
-class GroupMember(Base):
-    __tablename__ = "group_members"
-    __table_args__ = (UniqueConstraint("user_id", "group_id", name="uq_group_member"),)
+class OrgMember(Base):
+    __tablename__ = "org_members"
+    __table_args__ = (UniqueConstraint("org_id", "user_id", name="uq_org_member"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"), nullable=False)
-    role: Mapped[str] = mapped_column(String(40), default="member", nullable=False)
+    role: Mapped[str] = mapped_column(String(20), default="member", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
 class Monitor(Base):
@@ -49,13 +53,13 @@ class Monitor(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "slug", name="uq_monitor_user_slug"),
         Index("ix_monitors_user_id", "user_id"),
-        Index("ix_monitors_group_id", "group_id"),
+        Index("ix_monitors_org_id", "org_id"),
         Index("ix_monitors_next_run_at", "next_run_at"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id", ondelete="SET NULL"))
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
     slug: Mapped[str] = mapped_column(String(160), nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     type: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -93,10 +97,14 @@ class CheckResult(Base):
 
 class ConfigVersion(Base):
     __tablename__ = "config_versions"
-    __table_args__ = (Index("ix_config_versions_user_version", "user_id", "version"),)
+    __table_args__ = (
+        Index("ix_config_versions_user_version", "user_id", "version"),
+        Index("ix_config_versions_org_id", "org_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     format: Mapped[str] = mapped_column(String(10), nullable=False)
@@ -105,10 +113,14 @@ class ConfigVersion(Base):
 
 class TelegramIntegration(Base):
     __tablename__ = "telegram_integrations"
-    __table_args__ = (UniqueConstraint("user_id", name="uq_telegram_user"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_telegram_user"),
+        Index("ix_telegram_integrations_org_id", "org_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
     bot_token_secret: Mapped[str] = mapped_column(Text, nullable=False)
     chat_id: Mapped[str] = mapped_column(String(120), nullable=False)
     alert_scopes: Mapped[list[str]] = mapped_column(JSONType, nullable=False, default=list)

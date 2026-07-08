@@ -152,8 +152,15 @@ export function login(email: string, password: string) {
   });
 }
 
+export type OrganizationInfo = {
+  id: number;
+  name: string;
+  slug: string;
+  role: string;
+};
+
 export function getMe() {
-  return request<{ id: number; email: string }>('/auth/me');
+  return request<{ id: number; email: string; organization?: OrganizationInfo }>('/auth/me');
 }
 
 export function listMonitors() {

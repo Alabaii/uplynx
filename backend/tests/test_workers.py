@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base
 from app.core.security import encrypt_secret
-from app.models import CheckResult, Monitor, TelegramIntegration, User
+from app.models import CheckResult, Monitor, Organization, TelegramIntegration, User
 from app.schemas import CheckTask
 from app.services.checks import run_browser_check
 from app.workers.base import persist_result
@@ -45,10 +45,12 @@ def worker_session_factory(monkeypatch):
 def seed_monitor(session_factory, status="up", with_integration=True):
     with session_factory() as db:
         user = User(email="worker@example.com", hashed_password="x")
-        db.add(user)
+        org = Organization(name="My team", slug="default")
+        db.add_all([user, org])
         db.flush()
         monitor = Monitor(
             user_id=user.id,
+            org_id=org.id,
             slug="site",
             name="Site",
             type="http",
@@ -64,6 +66,7 @@ def seed_monitor(session_factory, status="up", with_integration=True):
             db.add(
                 TelegramIntegration(
                     user_id=user.id,
+                    org_id=org.id,
                     bot_token_secret=encrypt_secret("123456:secret-token"),
                     chat_id="42",
                     alert_scopes=["down", "recovered"],

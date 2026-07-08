@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.models import ConfigVersion, Monitor, User
 from app.schemas import ConfigDocument, ConfigMonitor, MonitorCreate, MonitorUpdate
+from app.services.orgs import get_user_org
 
 
 def parse_config(content: str, fmt: str) -> ConfigDocument:
@@ -43,8 +44,9 @@ def latest_config_version(db: Session, user_id: int) -> ConfigVersion | None:
 
 
 def create_config_version(db: Session, user: User, content: str, fmt: str) -> ConfigVersion:
+    org = get_user_org(db, user)
     current = db.scalar(select(func.max(ConfigVersion.version)).where(ConfigVersion.user_id == user.id)) or 0
-    version = ConfigVersion(user_id=user.id, version=current + 1, content=content, format=fmt)
+    version = ConfigVersion(user_id=user.id, org_id=org.id, version=current + 1, content=content, format=fmt)
     db.add(version)
     db.flush()
     return version
@@ -84,6 +86,7 @@ def enforce_monitor_limit(db: Session, user: User, new_enabled_count: int) -> No
 
 
 def resync_monitors(db: Session, user: User, document: ConfigDocument) -> None:
+    org = get_user_org(db, user)
     existing = {m.slug: m for m in db.scalars(select(Monitor).where(Monitor.user_id == user.id)).all()}
     incoming = {m.id: m for m in document.monitors}
     now = datetime.now(timezone.utc)
@@ -104,6 +107,7 @@ def resync_monitors(db: Session, user: User, document: ConfigDocument) -> None:
             db.add(
                 Monitor(
                     user_id=user.id,
+                    org_id=org.id,
                     slug=slug,
                     name=cfg.name or slug,
                     type=cfg.type,
@@ -165,6 +169,7 @@ def create_monitor_from_payload(db: Session, user: User, payload: MonitorCreate)
     config_json = payload.model_dump(exclude={"id", "name", "type", "url", "interval", "enabled"}, exclude_none=True)
     monitor = Monitor(
         user_id=user.id,
+        org_id=get_user_org(db, user).id,
         slug=payload.id,
         name=payload.name or payload.id,
         type=payload.type,
