@@ -6,7 +6,8 @@ from app.api.deps import OrgContext, get_current_org_member, require_role
 from app.core.database import get_db
 from app.models import ConfigVersion
 from app.schemas import ConfigRead, ConfigRollback, ConfigUpload, ConfigVersionRead
-from app.services.config_sync import latest_config_version, rollback_config, upload_config
+from app.services.audit import record
+from app.services.config_sync import latest_config_version, next_config_version, rollback_config, upload_config
 
 router = APIRouter()
 
@@ -25,6 +26,17 @@ def post_config(
     ctx: OrgContext = Depends(require_role("member")),
     db: Session = Depends(get_db),
 ) -> ConfigVersion:
+    # версия вычисляется заранее в той же транзакции — аудит коммитится вместе с загрузкой
+    version_number = next_config_version(db, ctx.org.id)
+    record(
+        db,
+        org_id=ctx.org.id,
+        user_id=ctx.user.id,
+        action="config.upload",
+        entity="config",
+        entity_id=str(version_number),
+        payload={"version": version_number},
+    )
     return upload_config(db, ctx.user, ctx.org, payload.content, payload.format)
 
 
@@ -58,4 +70,13 @@ def rollback(
     ctx: OrgContext = Depends(require_role("admin")),
     db: Session = Depends(get_db),
 ) -> ConfigVersion:
+    record(
+        db,
+        org_id=ctx.org.id,
+        user_id=ctx.user.id,
+        action="config.rollback",
+        entity="config",
+        entity_id=str(payload.version),
+        payload={"version": payload.version},
+    )
     return rollback_config(db, ctx.user, ctx.org, payload.version)

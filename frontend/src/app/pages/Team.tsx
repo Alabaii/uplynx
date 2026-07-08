@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Trash2, UserPlus, Users } from 'lucide-react';
+import { Activity, Trash2, UserPlus, Users } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
@@ -7,13 +7,16 @@ import {
   ApiError,
   addOrgMember,
   getMe,
+  listAuditEvents,
   listOrgMembers,
   removeOrgMember,
   updateMemberRole,
+  type AuditEvent,
   type OrgMember,
   type OrgRole,
 } from '../api';
 import { cn } from '../utils/cn';
+import { formatRelativeTime } from '../utils/time';
 
 const roleBadgeClasses: Record<OrgRole, string> = {
   owner: 'bg-accent text-primary',
@@ -23,6 +26,21 @@ const roleBadgeClasses: Record<OrgRole, string> = {
 };
 
 const assignableRoles = ['viewer', 'member', 'admin'] as const;
+
+const actionLabels: Record<string, string> = {
+  'monitor.create': 'created monitor',
+  'monitor.update': 'updated monitor',
+  'monitor.delete': 'deleted monitor',
+  'config.upload': 'uploaded config',
+  'config.rollback': 'rolled back config',
+  'telegram.connect': 'connected Telegram',
+  'org.create': 'created organization',
+  'org.update': 'updated organization settings',
+  'member.add': 'added member',
+  'member.role_change': 'changed member role',
+  'member.remove': 'removed member',
+  'auth.register': 'joined the workspace',
+};
 
 function RoleBadge({ role }: { role: OrgRole }) {
   return (
@@ -47,6 +65,7 @@ export default function Team() {
   const [isAdding, setIsAdding] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
 
   const canManage = myRole === 'admin' || myRole === 'owner';
 
@@ -73,6 +92,28 @@ export default function Team() {
       ignore = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!canManage) {
+      return;
+    }
+
+    let ignore = false;
+
+    listAuditEvents(20)
+      .then((events) => {
+        if (!ignore) {
+          setAuditEvents(events);
+        }
+      })
+      .catch(() => {
+        // карточка активности вторична — ошибку загрузки не показываем
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [canManage]);
 
   const handleAdd = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -252,6 +293,36 @@ export default function Team() {
           )}
         </CardContent>
       </Card>
+
+      {canManage && (
+        <Card className="overflow-hidden">
+          <CardHeader className="border-b border-border">
+            <CardTitle className="flex items-center gap-2">
+              <Activity className="h-5 w-5 text-primary" />
+              Recent activity
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 p-6">
+            {auditEvents.length === 0 ? (
+              <div className="rounded-lg bg-secondary p-4 text-sm text-muted-foreground">No activity yet.</div>
+            ) : (
+              auditEvents.map((event) => (
+                <div
+                  key={event.id}
+                  className="flex flex-col gap-1 rounded-lg border border-border p-4 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <p className="min-w-0 truncate text-sm text-foreground">
+                    <span className="font-semibold">{event.actor_email ?? 'System'}</span>{' '}
+                    <span className="text-muted-foreground">{actionLabels[event.action] ?? event.action}</span>{' '}
+                    <span className="font-semibold">{event.entity_id}</span>
+                  </p>
+                  <p className="shrink-0 text-xs text-placeholder">{formatRelativeTime(event.created_at)}</p>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

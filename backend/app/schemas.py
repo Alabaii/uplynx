@@ -81,6 +81,16 @@ class OrgMemberUpdate(BaseModel):
     role: AssignableOrgRole
 
 
+class AuditLogRead(BaseModel):
+    id: int
+    action: str
+    entity: str
+    entity_id: str
+    payload: dict[str, Any]
+    created_at: datetime
+    actor_email: str | None = None
+
+
 class BrowserStep(BaseModel):
     action: BrowserAction
     url: str | None = None

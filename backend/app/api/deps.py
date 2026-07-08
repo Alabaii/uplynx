@@ -2,7 +2,7 @@ from typing import Callable, NamedTuple
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -57,6 +57,11 @@ def get_current_org_member(
     if not row:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No organization membership")
     org, role = row
+    if db.get_bind().dialect.name == "postgresql":
+        # RLS-политики (миграция 0008) видят организацию через app.org_id.
+        # third=true — SET LOCAL: действует до конца текущей транзакции и сбрасывается
+        # на commit/rollback, поэтому не утекает в другие запросы через пул соединений.
+        db.execute(text("SELECT set_config('app.org_id', :v, true)"), {"v": str(org.id)})
     return OrgContext(user=user, org=org, role=role)
 
 

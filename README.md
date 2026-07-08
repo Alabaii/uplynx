@@ -407,6 +407,28 @@ docker-compose --env-file .env.production up --build
 - Всегда используйте HTTPS в продакшене
 - Регулярно обновляйте зависимости
 
+### Row-Level Security (защита в глубину)
+
+Миграция 0008 включает PostgreSQL RLS: строки организаций изолируются политиками по `org_id`
+(API выставляет `app.org_id` на каждый запрос). **RLS действует только для непривилегированных
+ролей** — суперпользователь обходит политики. Поэтому API и воркеры подключаются ролью
+`monitor_app` (`POSTGRES_APP_USER`/`POSTGRES_APP_PASSWORD`), а суперпользователь `monitor`
+остаётся только для миграций (scheduler).
+
+- Новые инсталляции: роль создаётся автоматически (`deploy/postgres-init.sh` через
+  docker-entrypoint-initdb.d).
+- Существующие тома: выполните SQL из `deploy/postgres-init.sh` вручную
+  (`docker compose exec postgres psql -U monitor -d monitor`), затем перезапустите сервисы.
+
+Проверка: `SET app.org_id = '999'; SELECT COUNT(*) FROM monitors;` под ролью `monitor_app`
+должна вернуть 0.
+
+### Аудит действий
+
+Все изменяющие действия (мониторы, конфиг, Telegram, участники, организации) пишутся в
+`audit_log` атомарно с самим действием. Просмотр: `GET /api/v1/orgs/current/audit` (роль
+admin+) или карточка «Recent activity» на странице Team.
+
 ## Лицензия
 
 MIT

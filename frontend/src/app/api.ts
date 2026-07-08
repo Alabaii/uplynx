@@ -192,6 +192,20 @@ export function removeOrgMember(userId: number) {
   });
 }
 
+export type AuditEvent = {
+  id: number;
+  action: string;
+  entity: string;
+  entity_id: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+  actor_email: string | null;
+};
+
+export function listAuditEvents(limit = 50, offset = 0) {
+  return request<AuditEvent[]>(`/orgs/current/audit?limit=${limit}&offset=${offset}`);
+}
+
 export function getMe() {
   return request<{ id: number; email: string; organization?: OrganizationInfo }>('/auth/me');
 }

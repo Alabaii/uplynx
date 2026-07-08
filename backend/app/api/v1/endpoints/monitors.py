@@ -8,6 +8,7 @@ from app.api.deps import OrgContext, get_current_org_member, require_role
 from app.core.database import get_db
 from app.models import CheckResult, Monitor, Organization
 from app.schemas import CheckResultRead, MonitorCreate, MonitorRead, MonitorStatus, MonitorUpdate, MonitorUptimeRead
+from app.services.audit import record
 from app.services.config_sync import create_monitor_from_payload, persist_monitors_as_config, update_monitor_from_payload
 
 router = APIRouter()
@@ -48,6 +49,15 @@ def create_monitor(
     ctx: OrgContext = Depends(require_role("member")),
     db: Session = Depends(get_db),
 ) -> MonitorRead:
+    record(
+        db,
+        org_id=ctx.org.id,
+        user_id=ctx.user.id,
+        action="monitor.create",
+        entity="monitor",
+        entity_id=payload.id,
+        payload={"name": payload.name or payload.id, "type": payload.type},
+    )
     return to_monitor_read(create_monitor_from_payload(db, ctx.user, ctx.org, payload))
 
 
@@ -122,6 +132,15 @@ def update_monitor(
     db: Session = Depends(get_db),
 ) -> MonitorRead:
     monitor = get_org_monitor(db, ctx.org, monitor_id)
+    record(
+        db,
+        org_id=ctx.org.id,
+        user_id=ctx.user.id,
+        action="monitor.update",
+        entity="monitor",
+        entity_id=monitor.slug,
+        payload={"changes": sorted(payload.model_dump(exclude_unset=True))},
+    )
     return to_monitor_read(update_monitor_from_payload(db, ctx.user, ctx.org, monitor, payload))
 
 
@@ -135,6 +154,15 @@ def delete_monitor(
     monitor.enabled = False
     monitor.status = "paused"
     monitor.next_run_at = None
+    record(
+        db,
+        org_id=ctx.org.id,
+        user_id=ctx.user.id,
+        action="monitor.delete",
+        entity="monitor",
+        entity_id=monitor.slug,
+        payload={"name": monitor.name},
+    )
     persist_monitors_as_config(db, ctx.user, ctx.org)
 
 

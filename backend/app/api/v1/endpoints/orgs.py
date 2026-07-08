@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -6,8 +6,9 @@ from app.api.deps import OrgContext, get_current_org_member, get_current_user, r
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import create_access_token
-from app.models import Organization, OrgMember, User
-from app.schemas import OrgCreate, OrgMemberAdd, OrgMemberRead, OrgMemberUpdate, OrgRead, OrgUpdate, Token
+from app.models import AuditLog, Organization, OrgMember, User
+from app.schemas import AuditLogRead, OrgCreate, OrgMemberAdd, OrgMemberRead, OrgMemberUpdate, OrgRead, OrgUpdate, Token
+from app.services.audit import record
 from app.services.orgs import enforce_member_quota
 
 router = APIRouter()
@@ -52,6 +53,15 @@ def create_org(
     db.add(org)
     db.flush()
     db.add(OrgMember(org_id=org.id, user_id=user.id, role="owner"))
+    record(
+        db,
+        org_id=org.id,
+        user_id=user.id,
+        action="org.create",
+        entity="org",
+        entity_id=org.slug,
+        payload={"name": org.name},
+    )
     db.commit()
     db.refresh(org)
     return to_org_read(org, "owner")
@@ -68,6 +78,15 @@ def update_current_org(
         data.pop("name", None)  # name — NOT NULL, явный null игнорируем
     for field, value in data.items():
         setattr(ctx.org, field, value)
+    record(
+        db,
+        org_id=ctx.org.id,
+        user_id=ctx.user.id,
+        action="org.update",
+        entity="org",
+        entity_id=ctx.org.slug,
+        payload={"changes": sorted(data)},
+    )
     db.commit()
     db.refresh(ctx.org)
     return to_org_read(ctx.org, ctx.role)
@@ -116,6 +135,15 @@ def add_member(
     enforce_member_quota(db, ctx.org)
     member = OrgMember(org_id=ctx.org.id, user_id=user.id, role=payload.role)
     db.add(member)
+    record(
+        db,
+        org_id=ctx.org.id,
+        user_id=ctx.user.id,
+        action="member.add",
+        entity="member",
+        entity_id=str(user.id),
+        payload={"member_email": user.email, "role": payload.role},
+    )
     db.commit()
     db.refresh(member)
     return OrgMemberRead(user_id=member.user_id, email=user.email, role=member.role, created_at=member.created_at)
@@ -134,9 +162,18 @@ def update_member_role(
     if member.role == "owner":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot change the owner's role")
     member.role = payload.role
+    email = db.scalar(select(User.email).where(User.id == member.user_id))
+    record(
+        db,
+        org_id=ctx.org.id,
+        user_id=ctx.user.id,
+        action="member.role_change",
+        entity="member",
+        entity_id=str(member.user_id),
+        payload={"member_email": email, "role": payload.role},
+    )
     db.commit()
     db.refresh(member)
-    email = db.scalar(select(User.email).where(User.id == member.user_id))
     return OrgMemberRead(user_id=member.user_id, email=email, role=member.role, created_at=member.created_at)
 
 
@@ -153,5 +190,44 @@ def remove_member(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot remove the organization owner")
     if member.user_id == ctx.user.id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot remove yourself")
+    email = db.scalar(select(User.email).where(User.id == member.user_id))
+    record(
+        db,
+        org_id=ctx.org.id,
+        user_id=ctx.user.id,
+        action="member.remove",
+        entity="member",
+        entity_id=str(member.user_id),
+        payload={"member_email": email},
+    )
     db.delete(member)
     db.commit()
+
+
+@router.get("/current/audit", response_model=list[AuditLogRead])
+def list_audit_events(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    ctx: OrgContext = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+) -> list[AuditLogRead]:
+    rows = db.execute(
+        select(AuditLog, User.email)
+        .outerjoin(User, User.id == AuditLog.user_id)
+        .where(AuditLog.org_id == ctx.org.id)
+        .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        .limit(limit)
+        .offset(offset)
+    ).all()
+    return [
+        AuditLogRead(
+            id=entry.id,
+            action=entry.action,
+            entity=entry.entity,
+            entity_id=entry.entity_id,
+            payload=entry.payload or {},
+            created_at=entry.created_at,
+            actor_email=email,
+        )
+        for entry, email in rows
+    ]

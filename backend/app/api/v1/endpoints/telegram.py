@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.core.security import decrypt_secret, encrypt_secret
 from app.models import TelegramIntegration
 from app.schemas import TelegramConnect, TelegramRead, TelegramTestResponse
+from app.services.audit import record
 from app.services.telegram import mask_token, send_telegram_message
 
 router = APIRouter()
@@ -49,6 +50,15 @@ def connect(
             alert_scopes=payload.alert_scopes,
         )
         db.add(integration)
+    record(
+        db,
+        org_id=ctx.org.id,
+        user_id=ctx.user.id,
+        action="telegram.connect",
+        entity="telegram",
+        entity_id=payload.chat_id,
+        payload={"chat_id": payload.chat_id},  # токен в аудит не пишем
+    )
     db.commit()
     return TelegramRead(
         connected=True,

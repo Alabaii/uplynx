@@ -42,9 +42,13 @@ def latest_config_version(db: Session, org_id: int) -> ConfigVersion | None:
     )
 
 
+def next_config_version(db: Session, org_id: int) -> int:
+    current = db.scalar(select(func.max(ConfigVersion.version)).where(ConfigVersion.org_id == org_id)) or 0
+    return current + 1
+
+
 def create_config_version(db: Session, user: User, org: Organization, content: str, fmt: str) -> ConfigVersion:
-    current = db.scalar(select(func.max(ConfigVersion.version)).where(ConfigVersion.org_id == org.id)) or 0
-    version = ConfigVersion(user_id=user.id, org_id=org.id, version=current + 1, content=content, format=fmt)
+    version = ConfigVersion(user_id=user.id, org_id=org.id, version=next_config_version(db, org.id), content=content, format=fmt)
     db.add(version)
     db.flush()
     return version

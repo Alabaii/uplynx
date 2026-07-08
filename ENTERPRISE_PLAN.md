@@ -4,7 +4,7 @@
 - **Фаза A — реализована**: организации в схеме данных, миграция 0002 с бэкфиллом, членство при регистрации, `/auth/me` с блоком organization.
 - **Фаза B — реализована**: RBAC-роли (viewer/member/admin/owner), общий воркспейс организации (мониторы/конфиг/Telegram по `org_id`), эндпоинты `/orgs` и страница Team, командные алерты, org_id в JWT, миграция 0003.
 - **Фаза C — реализована**: ретеншен `RETENTION_DAYS` с суточным роллапом в `uptime_daily` (миграция 0004), batch-эндпоинт `GET /monitors/uptime`, честные метрики на дашборде; fair scheduling (`row_number() OVER (PARTITION BY org_id)`, `SCHEDULER_ORG_BATCH_LIMIT`), квоты per-org (`PATCH /orgs/current`, enforcement quota_monitors/quota_members в enterprise-режиме), партиционирование `check_results` по месяцам на PostgreSQL (миграция 0006, `ensure_partitions` + DROP старых партиций при ретеншене; на sqlite — прежнее поведение).
-- Фаза D — спроектирована, не начата (RLS и аудит-лог — сюда).
+- **Фаза D — реализована частично**: аудит-лог действий (таблица `audit_log`, миграция 0007, сервис `services/audit.py` с записью в транзакции бизнес-действия, `GET /orgs/current/audit` для admin+, карточка «Recent activity» на странице Team); PostgreSQL Row-Level Security по `org_id` как защита в глубину (миграция 0008: ENABLE/FORCE RLS + политика `org_isolation` на monitors/config_versions/telegram_integrations/push_subscriptions/uptime_daily/audit_log; `app.org_id` выставляется через `SET LOCAL` в `get_current_org_member`; воркеры/scheduler настройку не выставляют — полный доступ осознанно). SSO (OIDC) — отложено: нет IdP для интеграции и тестирования; добавить, когда появится провайдер.
 
 Решения зафиксированы с владельцем продукта 2026-07-08:
 
@@ -67,7 +67,7 @@ OrgMember:
   - `member` — CRUD мониторов, редактирование конфига;
   - `admin` — Telegram-интеграция, приглашения, откат конфига;
   - `owner` — квоты, удаление организации, передача владения.
-- Защита в глубину (опционально, фаза 2): PostgreSQL Row-Level Security по `org_id` как страховка от ошибок фильтрации в коде.
+- Защита в глубину — реализовано: PostgreSQL Row-Level Security по `org_id` как страховка от ошибок фильтрации в коде (миграция 0008; на sqlite — no-op).
 
 ## 4. Планировщик и воркеры под нагрузкой
 
@@ -118,7 +118,7 @@ PATCH  /api/v1/orgs/{id}/members/{uid} — смена роли (admin+)
 1. **Фаза A — фундамент** (~схема БД): таблицы `organizations`/`org_members`, `org_id` во всех доменных таблицах, миграция «создать default-организацию и привязать всё существующее», зависимость `get_current_org_member`. Team-режим внешне не меняется.
 2. **Фаза B — роли и члены**: эндпоинты организаций/участников/приглашений, org_id в JWT, RBAC-проверки. UI участников.
 3. **Фаза C — масштаб**: партиционирование результатов, uptime-агрегаты, fair scheduling, квоты per-org.
-4. **Фаза D — полировка enterprise**: RLS, аудит-лог действий, SSO (OIDC) при необходимости.
+4. **Фаза D — полировка enterprise**: RLS — реализовано (миграция 0008); аудит-лог действий — реализовано (миграция 0007, `services/audit.py`); SSO (OIDC) — отложено: нет IdP для интеграции и тестирования; добавить, когда появится провайдер.
 
 Фазу A можно делать без риска для team-редакции — она чисто аддитивна, а «default»-организация делает поведение неотличимым от текущего.
 
