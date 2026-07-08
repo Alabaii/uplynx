@@ -24,6 +24,7 @@ def to_monitor_read(monitor: Monitor) -> MonitorRead:
         url=monitor.url,
         interval=monitor.interval,
         enabled=monitor.enabled,
+        confirmations=(monitor.config_json or {}).get("confirmations", 1),
         config=monitor.config_json or {},
     )
 

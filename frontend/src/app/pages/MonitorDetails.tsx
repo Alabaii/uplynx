@@ -277,6 +277,14 @@ export default function MonitorDetails() {
                 <p className="font-semibold text-foreground">HTTP expectations</p>
                 {expected.status !== undefined && <p className="mt-2">Status: {expected.status}</p>}
                 {expected.body_contains !== undefined && <p>Body contains: {expected.body_contains}</p>}
+                {expected.response_time_ms !== undefined && <p>Response time threshold: {expected.response_time_ms} ms</p>}
+              </div>
+            )}
+
+            {(monitor.confirmations ?? 1) > 1 && (
+              <div className="rounded-lg bg-secondary p-4">
+                <p className="font-semibold text-foreground">Anti-flapping</p>
+                <p className="mt-2">Confirmations: {monitor.confirmations} consecutive checks before a status change</p>
               </div>
             )}
 

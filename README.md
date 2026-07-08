@@ -122,8 +122,10 @@ monitors:
     url: https://example.com
     interval: 60
     enabled: true
+    confirmations: 3        # анти-флаппинг: статус меняется после 3 одинаковых результатов подряд
     expected:
       status: 200
+      response_time_ms: 1500  # ответ медленнее порога -> статус degraded
 ```
 
 **Скачать конфигурацию:**

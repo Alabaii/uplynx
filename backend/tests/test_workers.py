@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import get_settings
@@ -44,7 +44,7 @@ def worker_session_factory(monkeypatch):
     return TestingSessionLocal
 
 
-def seed_monitor(session_factory, status="up", with_integration=True):
+def seed_monitor(session_factory, status="up", with_integration=True, config_json=None):
     with session_factory() as db:
         user = User(email="worker@example.com", hashed_password="x")
         org = Organization(name="My team", slug="default")
@@ -59,7 +59,7 @@ def seed_monitor(session_factory, status="up", with_integration=True):
             status=status,
             url="https://example.com",
             interval=60,
-            config_json={},
+            config_json=config_json or {},
             enabled=True,
             next_run_at=datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
         )
@@ -129,6 +129,62 @@ def test_alert_sent_on_status_change(worker_session_factory, monkeypatch):
     asyncio.run(persist_result(make_task(monitor_id, "a3"), {"status": "up", "error": None, "details": {}}))
     assert len(calls) == 2
     assert "recovered" in calls[1][2]
+
+
+def test_confirmations_suppress_single_flap(worker_session_factory, monkeypatch):
+    monitor_id = seed_monitor(worker_session_factory, status="up", config_json={"confirmations": 2})
+    calls = []
+
+    async def fake_send(bot_token, chat_id, text):
+        calls.append(text)
+        return True
+
+    monkeypatch.setattr("app.workers.base.send_telegram_message", fake_send)
+
+    # первый down — сырой результат сохранён, но эффективный статус не меняется, алерта нет
+    asyncio.run(persist_result(make_task(monitor_id, "c1"), {"status": "down", "error": "boom", "details": {}}))
+    with worker_session_factory() as db:
+        assert db.get(Monitor, monitor_id).status == "up"
+        assert db.scalar(select(CheckResult).where(CheckResult.task_id == "c1")).status == "down"
+    assert calls == []
+
+    # второй down подряд — статус переключается, алерт ровно один
+    asyncio.run(persist_result(make_task(monitor_id, "c2"), {"status": "down", "error": "boom", "details": {}}))
+    with worker_session_factory() as db:
+        assert db.get(Monitor, monitor_id).status == "down"
+    assert len(calls) == 1
+    assert "down" in calls[0]
+
+
+def test_confirmations_interrupted_series_keeps_status(worker_session_factory, monkeypatch):
+    monitor_id = seed_monitor(worker_session_factory, status="up", config_json={"confirmations": 2})
+    calls = []
+
+    async def fake_send(bot_token, chat_id, text):
+        calls.append(text)
+        return True
+
+    monkeypatch.setattr("app.workers.base.send_telegram_message", fake_send)
+
+    # down-up-down: серия прервана, статус остаётся up
+    for task_id, raw in (("i1", "down"), ("i2", "up"), ("i3", "down")):
+        asyncio.run(persist_result(make_task(monitor_id, task_id), {"status": raw, "error": None, "details": {}}))
+
+    with worker_session_factory() as db:
+        assert db.get(Monitor, monitor_id).status == "up"
+        assert db.scalar(select(func.count()).select_from(CheckResult)) == 3
+    assert calls == []
+
+
+def test_pending_monitor_gets_status_immediately(worker_session_factory):
+    monitor_id = seed_monitor(
+        worker_session_factory, status="pending", with_integration=False, config_json={"confirmations": 5}
+    )
+
+    asyncio.run(persist_result(make_task(monitor_id, "n1"), {"status": "up", "error": None, "details": {}}))
+
+    with worker_session_factory() as db:
+        assert db.get(Monitor, monitor_id).status == "up"
 
 
 def test_alert_uses_org_integration_not_creators(worker_session_factory, monkeypatch):

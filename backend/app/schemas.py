@@ -103,6 +103,7 @@ class BrowserStep(BaseModel):
 class ExpectedHttp(BaseModel):
     status: int | None = Field(default=None, ge=100, le=599)
     body_contains: str | None = None
+    response_time_ms: int | None = Field(default=None, ge=1)
 
 
 class ConfigMonitor(BaseModel):
@@ -114,6 +115,8 @@ class ConfigMonitor(BaseModel):
     expected: ExpectedHttp | None = None
     steps: list[BrowserStep] | None = None
     enabled: bool = True
+    # анти-флаппинг: статус меняется после N одинаковых результатов подряд
+    confirmations: int = Field(default=1, ge=1, le=10)
 
     @field_validator("steps")
     @classmethod
@@ -168,6 +171,7 @@ class MonitorCreate(BaseModel):
     expected: ExpectedHttp | None = None
     steps: list[BrowserStep] | None = None
     enabled: bool = True
+    confirmations: int = Field(default=1, ge=1, le=10)
 
 
 class MonitorUpdate(BaseModel):
@@ -178,6 +182,7 @@ class MonitorUpdate(BaseModel):
     steps: list[BrowserStep] | None = None
     enabled: bool | None = None
     status: MonitorStatus | None = None
+    confirmations: int | None = Field(default=None, ge=1, le=10)
 
 
 class MonitorRead(BaseModel):
@@ -189,6 +194,7 @@ class MonitorRead(BaseModel):
     url: str | None
     interval: int
     enabled: bool
+    confirmations: int = 1
     config: dict[str, Any]
 
 

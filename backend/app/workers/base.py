@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 import pika
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
@@ -76,6 +77,29 @@ async def send_status_alert(monitor: Monitor, check_result: CheckResult, previou
     send_push_alerts(monitor, scope, text)
 
 
+def resolve_effective_status(db: Session, monitor: Monitor, raw_status: str) -> str:
+    """Анти-флаппинг: статус переключается только после N одинаковых результатов подряд.
+
+    Текущий результат уже должен быть в сессии (flush) — он входит в серию.
+    """
+    if monitor.status == "pending":
+        return raw_status  # новый монитор получает мгновенную обратную связь
+    if raw_status == monitor.status:
+        return monitor.status
+    confirmations = (monitor.config_json or {}).get("confirmations", 1)
+    if confirmations <= 1:
+        return raw_status
+    recent = db.scalars(
+        select(CheckResult.status)
+        .where(CheckResult.monitor_id == monitor.id)
+        .order_by(CheckResult.timestamp.desc(), CheckResult.id.desc())
+        .limit(confirmations)
+    ).all()
+    if len(recent) < confirmations or any(status != raw_status for status in recent):
+        return monitor.status
+    return raw_status
+
+
 async def persist_result(task: CheckTask, result: dict) -> None:
     with SessionLocal() as db:
         if db.scalar(select(CheckResult).where(CheckResult.task_id == task.task_id)):
@@ -93,9 +117,12 @@ async def persist_result(task: CheckTask, result: dict) -> None:
             details=result.get("details") or {},
             timestamp=datetime.now(timezone.utc),
         )
-        monitor.status = result["status"]
         db.add(check_result)
+        db.flush()  # текущий результат участвует в серии подтверждений
+        monitor.status = resolve_effective_status(db, monitor, result["status"])
         db.commit()
+    if monitor.status == previous_status:
+        return
     try:
         await send_status_alert(monitor, check_result, previous_status)
     except Exception:  # noqa: BLE001

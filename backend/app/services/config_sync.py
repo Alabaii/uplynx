@@ -28,6 +28,10 @@ def parse_config(content: str, fmt: str) -> ConfigDocument:
 
 def dump_config(document: ConfigDocument, fmt: str = "yaml") -> str:
     data = document.model_dump(exclude_none=True)
+    for monitor in data.get("monitors", []):
+        # дефолтное значение не шумит в конфиге
+        if monitor.get("confirmations") == 1:
+            monitor.pop("confirmations")
     if fmt == "json":
         return json.dumps(data, indent=2, ensure_ascii=False)
     return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
@@ -54,6 +58,14 @@ def create_config_version(db: Session, user: User, org: Organization, content: s
     return version
 
 
+def payload_config_json(payload: ConfigMonitor | MonitorCreate) -> dict[str, Any]:
+    """Гибкие поля монитора для Monitor.config_json; confirmations=1 (дефолт) не храним."""
+    config_json = payload.model_dump(exclude={"id", "name", "type", "url", "interval", "enabled"}, exclude_none=True)
+    if config_json.get("confirmations") == 1:
+        config_json.pop("confirmations")
+    return config_json
+
+
 def monitor_to_config(monitor: Monitor) -> ConfigMonitor:
     data = dict(monitor.config_json or {})
     return ConfigMonitor(
@@ -65,6 +77,7 @@ def monitor_to_config(monitor: Monitor) -> ConfigMonitor:
         expected=data.get("expected"),
         steps=data.get("steps"),
         enabled=monitor.enabled,
+        confirmations=data.get("confirmations", 1),
     )
 
 
@@ -102,7 +115,7 @@ def resync_monitors(db: Session, user: User, org: Organization, document: Config
     now = datetime.now(timezone.utc)
 
     for slug, cfg in incoming.items():
-        config_json = cfg.model_dump(exclude={"id", "name", "type", "url", "interval", "enabled"}, exclude_none=True)
+        config_json = payload_config_json(cfg)
         monitor = existing.get(slug)
         if monitor:
             monitor.name = cfg.name or slug
@@ -176,7 +189,7 @@ def create_monitor_from_payload(db: Session, user: User, org: Organization, payl
             select(func.count()).select_from(Monitor).where(Monitor.enabled.is_(True), Monitor.org_id == org.id)
         ) or 0
         enforce_monitor_limit(db, org, org_enabled + 1)
-    config_json = payload.model_dump(exclude={"id", "name", "type", "url", "interval", "enabled"}, exclude_none=True)
+    config_json = payload_config_json(payload)
     monitor = Monitor(
         user_id=user.id,
         org_id=org.id,
@@ -207,6 +220,11 @@ def update_monitor_from_payload(db: Session, user: User, org: Organization, moni
         config["expected"] = data["expected"]
     if "steps" in data:
         config["steps"] = data["steps"]
+    if "confirmations" in data:
+        if data["confirmations"] and data["confirmations"] > 1:
+            config["confirmations"] = data["confirmations"]
+        else:
+            config.pop("confirmations", None)
     monitor.config_json = config
     if monitor.enabled and monitor.next_run_at is None:
         monitor.next_run_at = datetime.now(timezone.utc)

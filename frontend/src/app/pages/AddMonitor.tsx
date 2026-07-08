@@ -89,6 +89,8 @@ export default function AddMonitor() {
     const interval = Number(formData.get('interval') ?? 60);
     const expectedStatus = Number(formData.get('expectedStatus') ?? 200);
     const bodyContains = String(formData.get('bodyContains') ?? '').trim();
+    const confirmations = Number(formData.get('confirmations') ?? 1);
+    const responseTimeMs = Number(formData.get('responseTimeMs') ?? 0);
     const slug = name
       .toLowerCase()
       .replace(/[^a-z0-9_.:-]+/g, '-')
@@ -101,7 +103,15 @@ export default function AddMonitor() {
         type: monitorType,
         url,
         interval,
-        expected: monitorType === 'http' ? { status: expectedStatus, body_contains: bodyContains || undefined } : undefined,
+        confirmations: confirmations > 1 ? confirmations : undefined,
+        expected:
+          monitorType === 'http'
+            ? {
+                status: expectedStatus,
+                body_contains: bodyContains || undefined,
+                response_time_ms: responseTimeMs > 0 ? responseTimeMs : undefined,
+              }
+            : undefined,
         steps:
           monitorType === 'browser'
             ? steps.map((step) => ({
@@ -160,12 +170,21 @@ export default function AddMonitor() {
               <Input label="Monitor name" name="name" placeholder="Production API health" required />
               <Input label="Target URL" name="url" placeholder="https://api.example.com/health" required />
               <Input label="Interval (seconds)" name="interval" type="number" min={10} defaultValue={monitorType === 'http' ? 60 : 300} required />
+              <Input
+                label="Confirmations (status changes after N consecutive checks)"
+                name="confirmations"
+                type="number"
+                min={1}
+                max={10}
+                defaultValue={1}
+              />
             </div>
 
             {monitorType === 'http' ? (
               <div className="grid gap-4 lg:grid-cols-2">
                 <Input label="Expected status" name="expectedStatus" type="number" placeholder="200" defaultValue="200" required />
                 <Input label="Body contains" name="bodyContains" placeholder="ok" defaultValue="ok" />
+                <Input label="Degraded above (ms)" name="responseTimeMs" type="number" min={1} placeholder="1500" />
               </div>
             ) : (
               <div className="space-y-5">

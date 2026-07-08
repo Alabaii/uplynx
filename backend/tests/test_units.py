@@ -2,6 +2,7 @@ import pytest
 
 from app.schemas import CheckTask
 from app.services.alerting import alert_scope_for_result
+from app.services.checks import classify_http_result
 from app.services.config_sync import parse_config
 from app.services.queue import deserialize_task, queue_for_type, serialize_task
 
@@ -41,6 +42,21 @@ def test_queue_routing_and_serialization():
     assert queue_for_type("http") == "http_checks"
     restored = deserialize_task(serialize_task(task))
     assert restored.task_id == "t1"
+
+
+def test_classify_http_result():
+    expected = {"status": 200, "body_contains": "ok", "response_time_ms": 500}
+    assert classify_http_result(100, 200, "ok", expected) == ("up", None)
+    assert classify_http_result(100, 500, "ok", expected) == ("down", "expected status 200, got 500")
+    assert classify_http_result(100, 200, "fail", expected) == ("degraded", "expected body text not found")
+    assert classify_http_result(900, 200, "ok", expected) == ("degraded", "slow response: 900 ms > 500 ms")
+    # приоритет: сначала доступность, потом скорость
+    assert classify_http_result(900, 500, "ok", expected) == ("down", "expected status 200, got 500")
+
+
+def test_classify_http_result_without_threshold():
+    # без порога медленный ответ остаётся up
+    assert classify_http_result(9000, 200, "ok", {"status": 200}) == ("up", None)
 
 
 def test_alert_decisions():
