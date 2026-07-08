@@ -50,6 +50,15 @@ services:
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
+      # SMTP для писем (сброс пароля, email-алерты); пусто — email-канал отключён
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-PWA Monitor <no-reply@localhost>}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      # базовый URL приложения для ссылок в письмах
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5173}
     ports:
       - "8000:8000"
     restart: unless-stopped
@@ -88,6 +97,15 @@ services:
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
+      # SMTP для email-алертов; пусто — email-канал отключён
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-PWA Monitor <no-reply@localhost>}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      # базовый URL приложения для ссылок в письмах
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5173}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -112,6 +130,15 @@ services:
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
+      # SMTP для email-алертов; пусто — email-канал отключён
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-PWA Monitor <no-reply@localhost>}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      # базовый URL приложения для ссылок в письмах
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5173}
     restart: unless-stopped
     depends_on:
       postgres:

@@ -11,9 +11,10 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.core.security import decrypt_secret
-from app.models import CheckResult, Monitor, PushSubscription, TelegramIntegration
+from app.models import CheckResult, Monitor, Organization, PushSubscription, TelegramIntegration
 from app.schemas import CheckTask
 from app.services.alerting import alert_scope_for_result, build_alert_text
+from app.services.email import email_enabled, send_email
 from app.services.incidents import update_incident_for_status_change
 from app.services.queue import deserialize_task
 from app.services.telegram import send_telegram_message
@@ -64,6 +65,24 @@ def send_push_alerts(monitor: Monitor, scope: str, body: str) -> None:
         logger.info("sent %s push alerts for monitor %s (removed %s dead subscriptions)", sent, monitor.slug, removed)
 
 
+async def send_email_alerts(monitor: Monitor, scope: str, body: str) -> None:
+    if not email_enabled():
+        return
+    with SessionLocal() as db:
+        org = db.get(Organization, monitor.org_id)
+        recipients = list(org.alert_emails or []) if org else []
+    if not recipients:
+        return
+    subject = f"[{scope.upper()}] {monitor.name}"
+    sent = 0
+    for address in recipients:
+        # send_email синхронный (smtplib) — не блокируем event loop
+        if await asyncio.to_thread(send_email, address, subject, body):
+            sent += 1
+    if sent:
+        logger.info("sent %s email alerts for monitor %s", sent, monitor.slug)
+
+
 async def send_status_alert(monitor: Monitor, check_result: CheckResult, previous_status: str | None) -> None:
     if previous_status == check_result.status:
         return
@@ -76,6 +95,10 @@ async def send_status_alert(monitor: Monitor, check_result: CheckResult, previou
     except Exception:  # noqa: BLE001 — push отправляется независимо от Telegram
         logger.exception("failed to send Telegram alert for monitor %s", monitor.id)
     send_push_alerts(monitor, scope, text)
+    try:
+        await send_email_alerts(monitor, scope, text)
+    except Exception:  # noqa: BLE001 — email не должен ломать persist_result
+        logger.exception("failed to send email alerts for monitor %s", monitor.id)
 
 
 def resolve_effective_status(db: Session, monitor: Monitor, raw_status: str) -> str:

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Bell, BellRing, Bot, CheckCircle2, Send, Smartphone, TriangleAlert } from 'lucide-react';
+import { Bell, BellRing, Bot, CheckCircle2, Mail, Send, Smartphone, TriangleAlert } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
-import { ApiError, connectTelegram, getTelegram, testTelegram } from '../api';
+import { ApiError, connectTelegram, getMe, getTelegram, listOrgs, testTelegram, updateCurrentOrg } from '../api';
+import { useMeta } from '../meta-context';
 import { usePushNotifications, type PushStatus } from '../pwa/usePushNotifications';
 import { cn } from '../utils/cn';
 
@@ -233,6 +234,8 @@ export default function TelegramSettings() {
 
           <BrowserPushCard />
 
+          <EmailAlertsCard />
+
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -302,6 +305,128 @@ function BrowserPushCard() {
             <Bell className="h-4 w-4" />
             {status === 'subscribed' ? 'Disable push' : 'Enable push'}
           </Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function EmailAlertsCard() {
+  const meta = useMeta();
+  const emailEnabled = meta?.email_enabled ?? false;
+  const [isOwner, setIsOwner] = useState(false);
+  const [emails, setEmails] = useState<string[]>([]);
+  const [draft, setDraft] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [message, setMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
+
+  useEffect(() => {
+    let ignore = false;
+
+    Promise.all([getMe(), listOrgs()])
+      .then(([me, orgs]) => {
+        if (ignore) return;
+        setIsOwner(me.organization?.role === 'owner');
+        const current = orgs.find((org) => org.id === me.organization?.id);
+        const list = current?.alert_emails ?? [];
+        setEmails(list);
+        setDraft(list.join(', '));
+      })
+      .catch(() => {
+        // данные организации недоступны — карточка остаётся в read-only-состоянии
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  const handleSave = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setIsSaving(true);
+    setMessage(null);
+
+    const parsed = draft
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    try {
+      const updated = await updateCurrentOrg({ alert_emails: parsed });
+      const list = updated.alert_emails ?? parsed;
+      setEmails(list);
+      setDraft(list.join(', '));
+      setMessage({ tone: 'success', text: 'Email recipients saved.' });
+    } catch (error) {
+      setMessage({
+        tone: 'error',
+        text: error instanceof ApiError ? error.message : 'Unable to save email recipients.',
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Mail className="h-5 w-5 text-primary" />
+          Email alerts
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4 text-sm leading-5 text-muted-foreground">
+        {!emailEnabled && (
+          <p className="rounded-lg bg-secondary p-4">
+            Email is not configured on this server (SMTP_HOST). Recipients are stored, but no emails are sent.
+          </p>
+        )}
+
+        {isOwner ? (
+          <form onSubmit={handleSave} className="space-y-4">
+            <div>
+              <label htmlFor="alert-emails" className="mb-1 block text-sm font-normal text-placeholder">
+                Recipients (comma-separated, up to 10)
+              </label>
+              <textarea
+                id="alert-emails"
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                rows={3}
+                placeholder="ops@company.com, oncall@company.com"
+                className="w-full rounded-lg border border-input bg-input-background px-3 py-2 text-base text-foreground placeholder:text-placeholder transition-colors hover:border-input-border-hover focus:border-input-border-hover focus:outline-none focus:ring-2 focus:ring-ring/20"
+              />
+            </div>
+
+            {message && (
+              <div
+                className={cn(
+                  'rounded-lg p-4 text-sm',
+                  message.tone === 'success'
+                    ? 'bg-accent text-accent-foreground'
+                    : 'bg-destructive/10 text-destructive'
+                )}
+              >
+                {message.text}
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <Button type="submit" isLoading={isSaving}>
+                <Mail className="h-4 w-4" />
+                Save recipients
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <div className="rounded-lg bg-secondary p-4">
+            <p className="font-semibold text-foreground">Recipients</p>
+            <p className="mt-2">
+              {emails.length
+                ? emails.join(', ')
+                : 'No recipients configured. Ask the workspace owner to add some.'}
+            </p>
+          </div>
         )}
       </CardContent>
     </Card>

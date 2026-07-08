@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -9,7 +11,10 @@ from app.core.security import create_access_token
 from app.models import AuditLog, Organization, OrgMember, User
 from app.schemas import AuditLogRead, OrgCreate, OrgMemberAdd, OrgMemberRead, OrgMemberUpdate, OrgRead, OrgUpdate, Token
 from app.services.audit import record
+from app.services.email import send_email
 from app.services.orgs import enforce_member_quota
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -23,6 +28,7 @@ def to_org_read(org: Organization, role: str) -> OrgRead:
         quota_monitors=org.quota_monitors,
         quota_members=org.quota_members,
         status_page_enabled=org.status_page_enabled,
+        alert_emails=org.alert_emails or [],
     )
 
 
@@ -75,7 +81,7 @@ def update_current_org(
     db: Session = Depends(get_db),
 ) -> OrgRead:
     data = payload.model_dump(exclude_unset=True)
-    for field in ("name", "status_page_enabled"):
+    for field in ("name", "status_page_enabled", "alert_emails"):
         if data.get(field) is None:
             data.pop(field, None)  # NOT NULL-поля, явный null игнорируем
     for field, value in data.items():
@@ -148,6 +154,17 @@ def add_member(
     )
     db.commit()
     db.refresh(member)
+    try:
+        # уведомление — best effort: сбой почты не ломает добавление участника
+        send_email(
+            user.email,
+            f"You were added to {ctx.org.name} on PWA Monitor",
+            f"You were added to the '{ctx.org.name}' organization on PWA Monitor "
+            f"with the {member.role} role.\n\n"
+            f"Open the dashboard: {get_settings().app_base_url}\n",
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("failed to send member-added email to %s", user.email)
     return OrgMemberRead(user_id=member.user_id, email=user.email, role=member.role, created_at=member.created_at)
 
 

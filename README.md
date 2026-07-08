@@ -31,6 +31,20 @@
 | `CORS_ORIGINS` | Разрешённые origins через запятую (по умолчанию `http://localhost:5173`) |
 | `ENVIRONMENT` | `development` / `production` |
 | `DEPLOYMENT_MODE` | `team` / `enterprise` |
+| `SMTP_HOST` | SMTP-сервер для писем; если пуст — email-канал отключён |
+| `APP_BASE_URL` | Базовый URL приложения для ссылок в письмах (по умолчанию `http://localhost:5173`) |
+
+## Email (SMTP)
+
+Email-канал включается переменной `SMTP_HOST` и покрывает три сценария: сброс пароля
+(`/forgot-password`), письмо участнику при добавлении в организацию и email-алерты о смене
+статуса мониторов (адреса настраивает owner на странице Alerts, до 10).
+
+Переменные: `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_USERNAME`/`SMTP_PASSWORD` (пусто — без
+авторизации), `SMTP_FROM`, `SMTP_STARTTLS` (true), `APP_BASE_URL` — полный список в
+`.env.example`. Без `SMTP_HOST` фича выключена и это нормально: эндпоинты отвечают как обычно,
+письма просто не отправляются (пишется лог), UI честно показывает, что email не настроен.
+Для локальной проверки удобен MailHog (`SMTP_HOST=mailhog`, `SMTP_PORT=1025`, `SMTP_STARTTLS=false`).
 
 ## Требования
 

@@ -131,6 +131,13 @@ export default function AuthPage() {
                 minLength={8}
                 required
               />
+              {!isRegister && (
+                <div className="text-right">
+                  <Link className="text-sm font-semibold text-primary hover:text-primary-hover" to="/forgot-password">
+                    Forgot password?
+                  </Link>
+                </div>
+              )}
               {isRegister && (
                 <Input
                   label="Confirm password"

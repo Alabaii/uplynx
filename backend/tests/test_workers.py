@@ -325,6 +325,55 @@ def test_push_skipped_without_vapid_keys(worker_session_factory, monkeypatch):
     assert pushed == []
 
 
+def set_alert_emails(session_factory, emails):
+    with session_factory() as db:
+        org = db.scalar(select(Organization))
+        org.alert_emails = emails
+        db.commit()
+
+
+def test_email_alerts_sent_to_all_addresses(worker_session_factory, monkeypatch):
+    monkeypatch.setattr(get_settings(), "smtp_host", "smtp.test")
+    monitor_id = seed_monitor(worker_session_factory, status="up", with_integration=False)
+    set_alert_emails(worker_session_factory, ["ops@example.com", "oncall@example.com"])
+
+    sent = []
+
+    def fake_send(to, subject, body):
+        sent.append((to, subject, body))
+        return True
+
+    monkeypatch.setattr("app.workers.base.send_email", fake_send)
+
+    asyncio.run(persist_result(make_task(monitor_id, "e1"), {"status": "down", "error": "boom", "details": {}}))
+
+    assert sorted(item[0] for item in sent) == ["oncall@example.com", "ops@example.com"]
+    assert sent[0][1] == "[DOWN] Site"
+    assert "down" in sent[0][2]
+
+    # тот же статус повторно — письма не дублируются
+    asyncio.run(persist_result(make_task(monitor_id, "e2"), {"status": "down", "error": "boom", "details": {}}))
+    assert len(sent) == 2
+
+
+def test_email_alerts_skipped_when_disabled_or_no_recipients(worker_session_factory, monkeypatch):
+    monitor_id = seed_monitor(worker_session_factory, status="up", with_integration=False)
+    sent = []
+    monkeypatch.setattr("app.workers.base.send_email", lambda *args: sent.append(args) or True)
+
+    # SMTP не настроен — писем нет, даже если адреса заданы
+    monkeypatch.setattr(get_settings(), "smtp_host", None)
+    set_alert_emails(worker_session_factory, ["ops@example.com"])
+    asyncio.run(persist_result(make_task(monitor_id, "d1"), {"status": "down", "error": "boom", "details": {}}))
+    assert sent == []
+
+    # SMTP настроен, но адресов нет — писем тоже нет
+    monkeypatch.setattr(get_settings(), "smtp_host", "smtp.test")
+    set_alert_emails(worker_session_factory, [])
+    asyncio.run(persist_result(make_task(monitor_id, "d2"), {"status": "up", "error": None, "details": {}}))
+    assert sent == []
+
+
 def test_scheduler_publishes_due_and_advances_next_run_at(worker_session_factory, monkeypatch):
     from app.workers.scheduler import publish_due_checks
 
