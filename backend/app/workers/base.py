@@ -14,6 +14,7 @@ from app.core.security import decrypt_secret
 from app.models import CheckResult, Monitor, PushSubscription, TelegramIntegration
 from app.schemas import CheckTask
 from app.services.alerting import alert_scope_for_result, build_alert_text
+from app.services.incidents import update_incident_for_status_change
 from app.services.queue import deserialize_task
 from app.services.telegram import send_telegram_message
 from app.services.webpush import PushSubscriptionGone, push_enabled, send_web_push
@@ -120,6 +121,9 @@ async def persist_result(task: CheckTask, result: dict) -> None:
         db.add(check_result)
         db.flush()  # текущий результат участвует в серии подтверждений
         monitor.status = resolve_effective_status(db, monitor, result["status"])
+        if monitor.status != previous_status:
+            # эффективная смена статуса — точка открытия/закрытия инцидента (та же транзакция)
+            update_incident_for_status_change(db, monitor, monitor.status, result.get("error"))
         db.commit()
     if monitor.status == previous_status:
         return

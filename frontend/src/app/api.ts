@@ -359,6 +359,39 @@ export function getPublicStatus(slug: string) {
   return request<PublicStatus>(`/status/${encodeURIComponent(slug)}`, { auth: false });
 }
 
+export type IncidentStatus = 'open' | 'resolved';
+export type IncidentSeverity = 'down' | 'degraded';
+
+export type Incident = {
+  id: number;
+  monitor_slug: string;
+  monitor_name: string;
+  status: IncidentStatus;
+  severity: IncidentSeverity;
+  started_at: string;
+  resolved_at: string | null;
+  duration_seconds: number | null;
+  trigger_error: string | null;
+};
+
+export function listIncidents(
+  params: { monitorId?: string; status?: IncidentStatus; range?: '24h' | '7d' | '30d'; limit?: number; offset?: number } = {}
+) {
+  const search = new URLSearchParams();
+
+  if (params.monitorId) search.set('monitor_id', params.monitorId);
+  if (params.status) search.set('status', params.status);
+  if (params.range) search.set('range', params.range);
+  if (params.limit) search.set('limit', String(params.limit));
+  if (params.offset) search.set('offset', String(params.offset));
+
+  return request<Incident[]>(`/incidents${search.size ? `?${search.toString()}` : ''}`);
+}
+
+export function getMonitorIncidents(slug: string) {
+  return request<Incident[]>(`/monitors/${encodeURIComponent(slug)}/incidents`);
+}
+
 export type TelegramIntegration = {
   connected: boolean;
   chat_id: string | null;

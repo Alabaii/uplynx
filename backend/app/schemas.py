@@ -5,6 +5,8 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 MonitorType = Literal["http", "browser"]
 MonitorStatus = Literal["up", "down", "paused", "degraded", "pending"]
+IncidentStatus = Literal["open", "resolved"]
+IncidentSeverity = Literal["down", "degraded"]
 BrowserAction = Literal["goto", "click", "type", "assert_text", "wait_for", "assert_url"]
 OrgRole = Literal["owner", "admin", "member", "viewer"]
 # owner назначается только при создании организации; передача владения — вне скоупа
@@ -210,6 +212,18 @@ class CheckResultRead(BaseModel):
     error: str | None
     details: dict[str, Any]
     timestamp: datetime
+
+
+class IncidentRead(BaseModel):
+    id: int
+    monitor_slug: str
+    monitor_name: str
+    status: IncidentStatus
+    severity: IncidentSeverity
+    started_at: datetime
+    resolved_at: datetime | None
+    duration_seconds: int | None
+    trigger_error: str | None
 
 
 class MonitorUptimeRead(BaseModel):

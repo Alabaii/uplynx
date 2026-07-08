@@ -163,6 +163,26 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
+class Incident(Base):
+    __tablename__ = "incidents"
+    __table_args__ = (
+        Index("ix_incidents_org_id", "org_id"),
+        Index("ix_incidents_monitor_id", "monitor_id"),
+        Index("ix_incidents_started_at", "started_at"),
+        Index("ix_incidents_org_started", "org_id", "started_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    monitor_id: Mapped[int] = mapped_column(ForeignKey("monitors.id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)  # open | resolved
+    severity: Mapped[str] = mapped_column(String(20), nullable=False)  # down | degraded — худшее наблюдённое
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    duration_seconds: Mapped[int | None] = mapped_column(Integer)
+    trigger_error: Mapped[str | None] = mapped_column(Text)
+
+
 class TelegramIntegration(Base):
     __tablename__ = "telegram_integrations"
     __table_args__ = (
