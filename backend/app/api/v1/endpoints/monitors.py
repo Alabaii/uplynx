@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import OrgContext, get_current_org_member, require_role
 from app.core.database import get_db
-from app.models import CheckResult, Monitor, Organization
+from app.models import CheckResult, MaintenanceWindow, Monitor, Organization
 from app.schemas import CheckResultRead, MonitorCreate, MonitorRead, MonitorStatus, MonitorUpdate, MonitorUptimeRead
 from app.services.audit import record
 from app.services.config_sync import create_monitor_from_payload, persist_monitors_as_config, update_monitor_from_payload
@@ -15,7 +15,7 @@ from app.services.uptime import collect_uptime_stats
 router = APIRouter()
 
 
-def to_monitor_read(monitor: Monitor) -> MonitorRead:
+def to_monitor_read(monitor: Monitor, in_maintenance: bool = False) -> MonitorRead:
     return MonitorRead(
         id=monitor.slug,
         internal_id=monitor.id,
@@ -27,6 +27,20 @@ def to_monitor_read(monitor: Monitor) -> MonitorRead:
         enabled=monitor.enabled,
         confirmations=(monitor.config_json or {}).get("confirmations", 1),
         config=monitor.config_json or {},
+        in_maintenance=in_maintenance,
+    )
+
+
+def active_maintenance_monitor_ids(db: Session, org_id: int, now: datetime) -> set[int | None]:
+    """monitor_id активных окон обслуживания организации; None в множестве — окно на всю организацию."""
+    return set(
+        db.scalars(
+            select(MaintenanceWindow.monitor_id).where(
+                MaintenanceWindow.org_id == org_id,
+                MaintenanceWindow.starts_at <= now,
+                MaintenanceWindow.ends_at > now,
+            )
+        ).all()
     )
 
 
@@ -42,7 +56,13 @@ def list_monitors(
     ctx: OrgContext = Depends(get_current_org_member), db: Session = Depends(get_db)
 ) -> list[MonitorRead]:
     monitors = db.scalars(select(Monitor).where(Monitor.org_id == ctx.org.id).order_by(Monitor.slug)).all()
-    return [to_monitor_read(monitor) for monitor in monitors]
+    # один запрос активных окон на весь список — без N+1
+    in_maintenance_ids = active_maintenance_monitor_ids(db, ctx.org.id, datetime.now(timezone.utc))
+    org_wide = None in in_maintenance_ids
+    return [
+        to_monitor_read(monitor, in_maintenance=org_wide or monitor.id in in_maintenance_ids)
+        for monitor in monitors
+    ]
 
 
 @router.post("/monitors", response_model=MonitorRead, status_code=status.HTTP_201_CREATED)

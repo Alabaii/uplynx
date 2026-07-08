@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Literal
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 MonitorType = Literal["http", "browser"]
 MonitorStatus = Literal["up", "down", "paused", "degraded", "pending"]
@@ -201,6 +201,7 @@ class MonitorRead(BaseModel):
     enabled: bool
     confirmations: int = 1
     config: dict[str, Any]
+    in_maintenance: bool = False
 
 
 class CheckResultRead(BaseModel):
@@ -226,6 +227,35 @@ class IncidentRead(BaseModel):
     trigger_error: str | None
 
 
+class MaintenanceWindowCreate(BaseModel):
+    # monitor_id — slug монитора; null — окно на всю организацию
+    monitor_id: str | None = None
+    starts_at: datetime
+    ends_at: datetime
+    note: str | None = Field(default=None, max_length=300)
+
+    @model_validator(mode="after")
+    def window_must_end_in_future(self) -> "MaintenanceWindowCreate":
+        starts = self.starts_at if self.starts_at.tzinfo else self.starts_at.replace(tzinfo=timezone.utc)
+        ends = self.ends_at if self.ends_at.tzinfo else self.ends_at.replace(tzinfo=timezone.utc)
+        if ends <= starts:
+            raise ValueError("ends_at must be after starts_at")
+        if ends <= datetime.now(timezone.utc):
+            raise ValueError("window must not be entirely in the past")
+        return self
+
+
+class MaintenanceWindowRead(BaseModel):
+    id: int
+    monitor_id: str | None
+    monitor_name: str | None
+    starts_at: datetime
+    ends_at: datetime
+    note: str | None
+    active: bool
+    created_by_email: str | None
+
+
 class MonitorUptimeRead(BaseModel):
     monitor_id: str
     uptime_pct: float | None
@@ -245,6 +275,7 @@ class PublicStatusMonitor(BaseModel):
     status: MonitorStatus
     uptime_pct: float | None
     last_check_at: datetime | None
+    in_maintenance: bool = False
 
 
 class PublicStatusRead(BaseModel):

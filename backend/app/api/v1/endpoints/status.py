@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.models import Monitor, Organization
+from app.models import MaintenanceWindow, Monitor, Organization
 from app.schemas import PublicOverallStatus, PublicStatusMonitor, PublicStatusRead
 from app.services.uptime import collect_uptime_stats
 
@@ -36,19 +36,35 @@ def public_status(org_slug: str, db: Session = Depends(get_db)) -> PublicStatusR
     monitors = db.scalars(
         select(Monitor).where(Monitor.org_id == org.id, Monitor.enabled.is_(True)).order_by(Monitor.slug)
     ).all()
-    since = datetime.now(timezone.utc) - timedelta(days=1)
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(days=1)
     stats = {row.monitor_id: row for row in collect_uptime_stats(db, org.id, since)}
+    maintenance_ids = set(
+        db.scalars(
+            select(MaintenanceWindow.monitor_id).where(
+                MaintenanceWindow.org_id == org.id,
+                MaintenanceWindow.starts_at <= now,
+                MaintenanceWindow.ends_at > now,
+            )
+        ).all()
+    )
+    org_wide_maintenance = None in maintenance_ids
+    in_maintenance = {
+        monitor.id: org_wide_maintenance or monitor.id in maintenance_ids for monitor in monitors
+    }
 
     return PublicStatusRead(
         organization=org.name,
-        updated_at=datetime.now(timezone.utc),
-        overall=overall_status({monitor.status for monitor in monitors}),
+        updated_at=now,
+        # мониторы в обслуживании не влияют на общий статус (как pending)
+        overall=overall_status({monitor.status for monitor in monitors if not in_maintenance[monitor.id]}),
         monitors=[
             PublicStatusMonitor(
                 name=monitor.name,
                 status=monitor.status,
                 uptime_pct=stats[monitor.id].uptime_pct if monitor.id in stats else None,
                 last_check_at=stats[monitor.id].last_check_at if monitor.id in stats else None,
+                in_maintenance=in_maintenance[monitor.id],
             )
             for monitor in monitors
         ],
