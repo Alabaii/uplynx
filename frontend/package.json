@@ -6,7 +6,8 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@fontsource/open-sans": "^5.2.7",
@@ -60,10 +61,12 @@
   "devDependencies": {
     "@playwright/test": "1.49.1",
     "@tailwindcss/vite": "4.1.12",
+    "@types/node": "^26.1.1",
     "@types/react": "18.3.18",
     "@types/react-dom": "18.3.5",
     "@vitejs/plugin-react": "4.7.0",
     "tailwindcss": "4.1.12",
+    "typescript": "^5.9.3",
     "vite": "6.3.5"
   },
   "peerDependencies": {
