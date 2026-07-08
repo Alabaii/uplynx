@@ -250,13 +250,24 @@ curl -X POST http://localhost:8000/api/v1/monitors \
     "interval": 300,
     "steps": [
       {"action": "goto", "url": "https://example.com/login"},
+      {"action": "wait_for", "selector": "#username"},
       {"action": "type", "selector": "#username", "text": "test@example.com"},
-      {"action": "type", "selector": "#password", "text": "password"},
+      {"action": "type", "selector": "#password", "text": "${MONITOR_PASSWORD}"},
       {"action": "click", "selector": "button[type=\"submit\"]"},
-      {"action": "assert_text", "text": "Welcome"}
+      {"action": "assert_url", "contains": "/dashboard"},
+      {"action": "assert_text", "selector": "h1", "text": "Welcome"}
     ]
   }'
 ```
+
+Поддерживаемые действия: `goto`, `click`, `type`, `wait_for` (дождаться появления элемента),
+`assert_url` (текущий URL содержит подстроку `contains`), `assert_text` (текст элемента по `selector`
+или всей страницы, если `selector` не задан).
+
+Плейсхолдеры вида `${MONITOR_PASSWORD}` подставляются из переменных окружения browser-воркера
+в момент выполнения шага — секреты не хранятся в конфиге и не попадают в историю проверок.
+Если переменная не задана, проверка падает с ошибкой `environment variable 'MONITOR_PASSWORD' is not set`.
+При падении шага в details результата сохраняются номер шага и JPEG-скриншот страницы.
 
 Проверьте логи browser worker:
 ```bash

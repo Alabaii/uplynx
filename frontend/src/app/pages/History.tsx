@@ -181,14 +181,29 @@ export default function History() {
 
                     <div className="rounded-lg bg-secondary p-4 text-sm leading-5 text-muted-foreground">
                       {check.error ? <p className="font-medium text-destructive">{check.error}</p> : <p>Check completed successfully.</p>}
+                      {check.details.failed_step && (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Failed at step {check.details.failed_step.index}: {check.details.failed_step.action}{' '}
+                          {check.details.failed_step.selector ?? check.details.failed_step.url ?? check.details.failed_step.contains ?? ''}
+                        </p>
+                      )}
                       {Object.keys(check.details).length > 0 && (
                         <div className="mt-3 space-y-1 font-mono text-xs text-placeholder">
-                          {Object.entries(check.details).map(([key, value]) => (
-                            <div key={key}>
-                              {key}: {typeof value === 'string' ? value : JSON.stringify(value)}
-                            </div>
-                          ))}
+                          {Object.entries(check.details)
+                            .filter(([key]) => key !== 'screenshot' && key !== 'failed_step')
+                            .map(([key, value]) => (
+                              <div key={key}>
+                                {key}: {typeof value === 'string' ? value : JSON.stringify(value)}
+                              </div>
+                            ))}
                         </div>
+                      )}
+                      {check.details.screenshot && (
+                        <img
+                          src={`data:image/jpeg;base64,${check.details.screenshot}`}
+                          alt={`Screenshot of failed check at ${new Date(check.timestamp).toLocaleString()}`}
+                          className="mt-3 max-h-40 rounded-lg border border-border"
+                        />
                       )}
                     </div>
                   </div>

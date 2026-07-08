@@ -33,6 +33,7 @@ export type BrowserStep = {
   selector?: string | null;
   text?: string | null;
   value?: string | null;
+  contains?: string | null;
 };
 
 export type Monitor = {
@@ -66,6 +67,14 @@ export type ConfigVersion = {
   created_at: string;
 };
 
+export type CheckDetails = {
+  steps?: number;
+  failed_step?: { index: number; action: string; selector?: string; url?: string; contains?: string };
+  screenshot?: string | null;
+  final_url?: string;
+  [k: string]: unknown;
+};
+
 export type CheckResult = {
   id: number;
   monitor_id: number;
@@ -73,7 +82,7 @@ export type CheckResult = {
   status: MonitorStatus;
   response_time_ms: number | null;
   error: string | null;
-  details: Record<string, unknown>;
+  details: CheckDetails;
   timestamp: string;
 };
 

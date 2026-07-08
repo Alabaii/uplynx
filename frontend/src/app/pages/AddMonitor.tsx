@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { ChevronLeft, FileSearch, Globe, MousePointerClick, Save, Type, WandSparkles } from 'lucide-react';
+import { ChevronLeft, FileSearch, Globe, Hourglass, Link2, MousePointerClick, Save, Type, WandSparkles } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { ApiError, createMonitor, type MonitorType } from '../api';
 import { Input } from '../components/ui/Input';
 import { cn } from '../utils/cn';
 
-type BrowserStepAction = 'goto' | 'click' | 'type' | 'assert_text';
+type BrowserStepAction = 'goto' | 'click' | 'type' | 'assert_text' | 'wait_for' | 'assert_url';
 
 type BuilderStep = {
   id: string;
@@ -17,6 +17,7 @@ type BuilderStep = {
   value?: string;
   url?: string;
   expectedText?: string;
+  contains?: string;
 };
 
 const starterSteps: BuilderStep[] = [
@@ -28,6 +29,8 @@ const stepLabels: Record<BrowserStepAction, string> = {
   click: 'Click target',
   type: 'Type text',
   assert_text: 'Assert text',
+  wait_for: 'Wait for element',
+  assert_url: 'Assert URL',
 };
 
 const stepIcons: Record<BrowserStepAction, typeof Globe> = {
@@ -35,6 +38,8 @@ const stepIcons: Record<BrowserStepAction, typeof Globe> = {
   click: MousePointerClick,
   type: Type,
   assert_text: FileSearch,
+  wait_for: Hourglass,
+  assert_url: Link2,
 };
 
 export default function AddMonitor() {
@@ -60,6 +65,7 @@ export default function AddMonitor() {
         value: '',
         url: '',
         expectedText: '',
+        contains: '',
       },
     ]);
   };
@@ -104,6 +110,7 @@ export default function AddMonitor() {
                 selector: step.selector,
                 text: step.expectedText,
                 value: step.value,
+                contains: step.contains,
               }))
             : undefined,
       });
@@ -167,11 +174,11 @@ export default function AddMonitor() {
                     <div>
                       <h3 className="text-base font-medium leading-6 text-foreground">Scenario builder</h3>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        Supported actions: `goto`, `click`, `type`, `assert_text`.
+                        Supported actions: `goto`, `click`, `type`, `assert_text`, `wait_for`, `assert_url`.
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {(['goto', 'click', 'type', 'assert_text'] as const).map((action) => {
+                      {(['goto', 'click', 'type', 'assert_text', 'wait_for', 'assert_url'] as const).map((action) => {
                         const Icon = stepIcons[action];
 
                         return (
@@ -259,13 +266,36 @@ export default function AddMonitor() {
                               />
                             </>
                           )}
-                          {step.action === 'assert_text' && (
+                          {step.action === 'wait_for' && (
                             <Input
-                              label="Expected text"
-                              value={step.expectedText}
-                              onChange={(event) => updateStep(step.id, 'expectedText', event.target.value)}
+                              label="Selector"
+                              value={step.selector}
+                              onChange={(event) => updateStep(step.id, 'selector', event.target.value)}
                               required
                             />
+                          )}
+                          {step.action === 'assert_url' && (
+                            <Input
+                              label="URL contains"
+                              value={step.contains}
+                              onChange={(event) => updateStep(step.id, 'contains', event.target.value)}
+                              required
+                            />
+                          )}
+                          {step.action === 'assert_text' && (
+                            <>
+                              <Input
+                                label="Expected text"
+                                value={step.expectedText}
+                                onChange={(event) => updateStep(step.id, 'expectedText', event.target.value)}
+                                required
+                              />
+                              <Input
+                                label="Selector (optional)"
+                                value={step.selector}
+                                onChange={(event) => updateStep(step.id, 'selector', event.target.value)}
+                              />
+                            </>
                           )}
                         </div>
                       </div>
