@@ -3,10 +3,11 @@ import time
 from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
-from app.models import Monitor
+from app.models import MaintenanceWindow, Monitor
 from app.services.queue import RabbitPublisher, task_for_monitor
 from app.services.retention import ensure_partitions, rollup_and_prune
 
@@ -45,13 +46,53 @@ def publish_due_checks(publisher: RabbitPublisher | None = None) -> int:
             .where(Monitor.id.in_(due_ids), Monitor.enabled.is_(True), Monitor.next_run_at <= now)
             .with_for_update(skip_locked=True)
         ).all()
+        maintenance_until = collect_maintenance_ends(db, monitors, now)
         for monitor in monitors:
+            pause_until = maintenance_until.get(monitor.id)
+            if pause_until is not None:
+                # активное окно обслуживания: проверку не публикуем,
+                # первый запуск — сразу по окончании работ
+                monitor.next_run_at = pause_until
+                continue
             task = task_for_monitor(monitor, timeout_seconds=settings.check_timeout_seconds)
             publisher.publish(task)
             monitor.next_run_at = now + timedelta(seconds=monitor.interval)
             count += 1
         db.commit()
     return count
+
+
+def collect_maintenance_ends(db: Session, monitors: list[Monitor], now: datetime) -> dict[int, datetime]:
+    """monitor.id -> максимальный ends_at активных окон обслуживания монитора.
+
+    Одним запросом забираем активные окна затронутых организаций и раскладываем
+    по мониторам в питоне: батч ≤500 строк, окон на организацию единицы — это
+    дешевле и переносимее (sqlite/postgres), чем join с агрегацией в SQL.
+    """
+    org_ids = {monitor.org_id for monitor in monitors}
+    if not org_ids:
+        return {}
+    windows = db.scalars(
+        select(MaintenanceWindow).where(
+            MaintenanceWindow.org_id.in_(org_ids),
+            MaintenanceWindow.starts_at <= now,
+            MaintenanceWindow.ends_at > now,
+        )
+    ).all()
+    org_ends: dict[int, datetime] = {}
+    monitor_ends: dict[int, datetime] = {}
+    for window in windows:
+        # sqlite возвращает naive-даты, postgres — aware; приводим к UTC
+        ends_at = window.ends_at if window.ends_at.tzinfo else window.ends_at.replace(tzinfo=timezone.utc)
+        target, key = (org_ends, window.org_id) if window.monitor_id is None else (monitor_ends, window.monitor_id)
+        if key not in target or target[key] < ends_at:
+            target[key] = ends_at
+    result: dict[int, datetime] = {}
+    for monitor in monitors:
+        candidates = [ends for ends in (org_ends.get(monitor.org_id), monitor_ends.get(monitor.id)) if ends]
+        if candidates:
+            result[monitor.id] = max(candidates)
+    return result
 
 
 def run_forever() -> None:

@@ -46,6 +46,7 @@ export type Monitor = {
   interval: number;
   enabled: boolean;
   confirmations?: number;
+  in_maintenance?: boolean;
   config: {
     expected?: {
       status?: number;
@@ -346,6 +347,7 @@ export type PublicStatusMonitor = {
   status: MonitorStatus;
   uptime_pct: number | null;
   last_check_at: string | null;
+  in_maintenance: boolean;
 };
 
 export type PublicStatus = {
@@ -390,6 +392,39 @@ export function listIncidents(
 
 export function getMonitorIncidents(slug: string) {
   return request<Incident[]>(`/monitors/${encodeURIComponent(slug)}/incidents`);
+}
+
+export type MaintenanceWindow = {
+  id: number;
+  monitor_id: string | null;
+  monitor_name: string | null;
+  starts_at: string;
+  ends_at: string;
+  note: string | null;
+  active: boolean;
+  created_by_email: string | null;
+};
+
+export function listMaintenance(includePast = false) {
+  return request<MaintenanceWindow[]>(`/maintenance${includePast ? '?include_past=true' : ''}`);
+}
+
+export function createMaintenance(payload: {
+  monitor_id: string | null;
+  starts_at: string;
+  ends_at: string;
+  note?: string;
+}) {
+  return request<MaintenanceWindow>('/maintenance', {
+    method: 'POST',
+    body: payload,
+  });
+}
+
+export function deleteMaintenance(id: number) {
+  return request<void>(`/maintenance/${id}`, {
+    method: 'DELETE',
+  });
 }
 
 export type TelegramIntegration = {

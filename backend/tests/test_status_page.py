@@ -64,8 +64,8 @@ def test_status_page_shows_only_enabled_monitors_without_sensitive_fields(client
     assert len(body["monitors"]) == 1
 
     monitor = body["monitors"][0]
-    # только имя, статус, uptime и last_check — ничего чувствительного
-    assert set(monitor) == {"name", "status", "uptime_pct", "last_check_at"}
+    # только имя, статус, uptime, last_check и флаг обслуживания — ничего чувствительного
+    assert set(monitor) == {"name", "status", "uptime_pct", "last_check_at", "in_maintenance"}
     assert monitor["name"] == "Site"
     assert monitor["status"] == "up"
     assert monitor["uptime_pct"] == 50.0  # 1 из 2 за 24 часа

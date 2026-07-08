@@ -133,7 +133,13 @@ export default function StatusPage() {
               >
                 <div className="flex min-w-0 items-center gap-3">
                   <p className="truncate text-sm font-semibold text-foreground">{monitor.name}</p>
-                  <StatusBadge status={monitor.status} />
+                  {monitor.in_maintenance ? (
+                    <span className="inline-flex items-center rounded-lg bg-secondary px-2.5 py-1 text-xs font-semibold text-muted-foreground">
+                      Maintenance
+                    </span>
+                  ) : (
+                    <StatusBadge status={monitor.status} />
+                  )}
                 </div>
                 <div className="flex shrink-0 items-center gap-4 text-xs text-muted-foreground">
                   <span>

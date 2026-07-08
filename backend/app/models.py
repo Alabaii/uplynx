@@ -183,6 +183,24 @@ class Incident(Base):
     trigger_error: Mapped[str | None] = mapped_column(Text)
 
 
+class MaintenanceWindow(Base):
+    __tablename__ = "maintenance_windows"
+    __table_args__ = (
+        Index("ix_maintenance_windows_org_id", "org_id"),
+        Index("ix_maintenance_windows_org_ends", "org_id", "ends_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    # null — окно на всю организацию
+    monitor_id: Mapped[int | None] = mapped_column(ForeignKey("monitors.id", ondelete="CASCADE"))
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    note: Mapped[str | None] = mapped_column(String(300))
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
 class TelegramIntegration(Base):
     __tablename__ = "telegram_integrations"
     __table_args__ = (

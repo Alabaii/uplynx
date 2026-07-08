@@ -10,6 +10,7 @@ const AddMonitor = React.lazy(() => import('./pages/AddMonitor'));
 const MonitorDetails = React.lazy(() => import('./pages/MonitorDetails'));
 const History = React.lazy(() => import('./pages/History'));
 const Incidents = React.lazy(() => import('./pages/Incidents'));
+const Maintenance = React.lazy(() => import('./pages/Maintenance'));
 const ConfigEditor = React.lazy(() => import('./pages/ConfigEditor'));
 const TelegramSettings = React.lazy(() => import('./pages/Telegram'));
 const Team = React.lazy(() => import('./pages/Team'));
@@ -49,6 +50,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: withSuspense(<Dashboard />) },
       { path: 'incidents', element: withSuspense(<Incidents />) },
+      { path: 'maintenance', element: withSuspense(<Maintenance />) },
       { path: 'monitors/new', element: withSuspense(<AddMonitor />) },
       { path: 'monitors/:id', element: withSuspense(<MonitorDetails />) },
       { path: 'monitors/:id/history', element: withSuspense(<History />) },

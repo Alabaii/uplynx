@@ -234,6 +234,11 @@ export default function Dashboard() {
                       <div className="flex flex-wrap items-center gap-3">
                         <h3 className="text-sm font-semibold leading-5 text-primary">{monitor.name}</h3>
                         <StatusBadge status={monitor.status} />
+                        {monitor.in_maintenance && (
+                          <span className="rounded-lg bg-secondary px-2.5 py-1 text-[11px] font-semibold uppercase text-muted-foreground">
+                            Maintenance
+                          </span>
+                        )}
                         <span className="rounded-lg bg-secondary px-3 py-1 text-xs font-semibold uppercase text-muted-foreground">
                           {monitor.type}
                         </span>

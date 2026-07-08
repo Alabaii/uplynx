@@ -10,6 +10,7 @@ import {
   Siren,
   Smartphone,
   Users,
+  Wrench,
 } from 'lucide-react';
 import { clearSession, getSessionEmail } from '../auth';
 import { OfflineBanner } from '../components/OfflineBanner';
@@ -22,15 +23,16 @@ import { cn } from '../utils/cn';
 const navigation = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/incidents', label: 'Incidents', icon: Siren },
+  { to: '/maintenance', label: 'Maintenance', icon: Wrench },
   { to: '/config', label: 'Config', icon: FileCode2 },
   { to: '/monitors/new', label: 'New Monitor', icon: PlusCircle },
   { to: '/team', label: 'Team', icon: Users },
   { to: '/telegram', label: 'Telegram', icon: Send },
 ];
 
-// нижняя навигация на мобиле — ровно 5 пунктов в grid-cols-5; Incidents доступен на десктопе
-// и из карточки монитора, поэтому здесь он опущен, чтобы не ломать сетку шестым пунктом
-const mobileNavigation = navigation.filter((item) => item.to !== '/incidents');
+// нижняя навигация на мобиле — ровно 5 пунктов в grid-cols-5; Incidents и Maintenance доступны
+// на десктопе, поэтому здесь они опущены, чтобы не ломать сетку лишними пунктами
+const mobileNavigation = navigation.filter((item) => item.to !== '/incidents' && item.to !== '/maintenance');
 
 export function AppLayout() {
   const navigate = useNavigate();
