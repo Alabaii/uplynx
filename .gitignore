@@ -252,3 +252,7 @@ GEMINI.md
 AGENTS.md
 .specstory/
 .planning/
+
+# Markdown-документы (планы, спеки, заметки вайбкодинга) — в репо только README
+*.md
+!README.md
