@@ -74,7 +74,7 @@ export default function AuthPage() {
       }
 
       const token = await login(email, password);
-      createSession(token.access_token, email);
+      createSession(token.access_token, email, token.refresh_token);
       navigate('/');
     } catch (error) {
       // 403 на этой странице = требуется подтверждение email (после register или login)

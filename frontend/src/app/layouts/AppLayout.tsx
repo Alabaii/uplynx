@@ -5,7 +5,7 @@ import { clearSession, getSessionEmail } from '../auth';
 import { CommandPalette } from '../components/CommandPalette';
 import { EmailVerificationBanner } from '../components/EmailVerificationBanner';
 import { OfflineBanner } from '../components/OfflineBanner';
-import { getMe } from '../api';
+import { getMe, logout } from '../api';
 import { useDeploymentMode } from '../meta-context';
 import { OrgSwitcher } from './OrgSwitcher';
 import { navigation } from './navigation';
@@ -64,6 +64,8 @@ export function AppLayout() {
   }, []);
 
   const handleLogout = () => {
+    // отзываем refresh-сессию на сервере; сбой не мешает локальному выходу
+    logout().catch(() => {});
     clearSession();
     navigate('/login');
   };

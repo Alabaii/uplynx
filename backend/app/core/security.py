@@ -29,6 +29,11 @@ def decrypt_secret(value: str) -> str:
     return _fernet().decrypt(value.encode("utf-8")).decode("utf-8")
 
 
+def hash_token(token: str) -> str:
+    """sha256-hex одноразового токена (refresh/reset/verify) — в БД сырой токен не хранится."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
