@@ -39,7 +39,7 @@ def test_queue_routing_and_serialization():
         created_at="2026-01-01T00:00:00Z",
         attempt=1,
     )
-    assert queue_for_type("http") == "http_checks"
+    assert queue_for_type("http") == "http_checks.v2"
     restored = deserialize_task(serialize_task(task))
     assert restored.task_id == "t1"
 

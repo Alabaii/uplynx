@@ -8,8 +8,12 @@ from app.core.config import get_settings
 from app.models import Monitor
 from app.schemas import CheckTask
 
-HTTP_QUEUE = "http_checks"
-BROWSER_QUEUE = "browser_checks"
+# суффикс .v2 — очередь пересоздана с dead-letter; у RabbitMQ нельзя добавить
+# x-dead-letter-* к уже существующей очереди без её удаления
+HTTP_QUEUE = "http_checks.v2"
+BROWSER_QUEUE = "browser_checks.v2"
+DLX_EXCHANGE = "checks.dlx"
+DEAD_LETTER_QUEUES = {HTTP_QUEUE: "http_checks.dlq", BROWSER_QUEUE: "browser_checks.dlq"}
 
 
 def queue_for_type(monitor_type: str) -> str:
@@ -18,6 +22,24 @@ def queue_for_type(monitor_type: str) -> str:
     if monitor_type == "browser":
         return BROWSER_QUEUE
     raise ValueError(f"Unsupported monitor type: {monitor_type}")
+
+
+def declare_check_queue(channel: "pika.adapters.blocking_connection.BlockingChannel", queue: str) -> None:
+    """Идемпотентно объявляет рабочую очередь с dead-letter и её DLQ.
+
+    Отклонённое воркером (nack, requeue=False) сообщение RabbitMQ автоматически
+    перекладывает в DLX → DLQ вместо тихой потери. Вызывается и publisher'ом,
+    и consumer'ом — кто первый, тот и создаёт topology.
+    """
+    dead_queue = DEAD_LETTER_QUEUES[queue]
+    channel.exchange_declare(exchange=DLX_EXCHANGE, exchange_type="direct", durable=True)
+    channel.queue_declare(queue=dead_queue, durable=True)
+    channel.queue_bind(queue=dead_queue, exchange=DLX_EXCHANGE, routing_key=dead_queue)
+    channel.queue_declare(
+        queue=queue,
+        durable=True,
+        arguments={"x-dead-letter-exchange": DLX_EXCHANGE, "x-dead-letter-routing-key": dead_queue},
+    )
 
 
 def task_for_monitor(monitor: Monitor, timeout_seconds: int = 30) -> CheckTask:
@@ -65,7 +87,7 @@ class RabbitPublisher:
 
     def _publish(self, queue: str, body: bytes) -> None:
         channel = self._get_channel()
-        channel.queue_declare(queue=queue, durable=True)
+        declare_check_queue(channel, queue)
         channel.basic_publish(
             exchange="",
             routing_key=queue,

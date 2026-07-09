@@ -7,11 +7,23 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
-from app.models import MaintenanceWindow, Monitor
+from app.models import MaintenanceWindow, Monitor, SchedulerHeartbeat
 from app.services.queue import RabbitPublisher, task_for_monitor
 from app.services.retention import ensure_partitions, rollup_and_prune
 
 logger = logging.getLogger(__name__)
+
+
+def write_heartbeat() -> None:
+    """Отмечает живость шедулера — читается /health/scheduler для liveness."""
+    now = datetime.now(timezone.utc)
+    with SessionLocal() as db:
+        beat = db.get(SchedulerHeartbeat, 1)
+        if beat is None:
+            db.add(SchedulerHeartbeat(id=1, beat_at=now))
+        else:
+            beat.beat_at = now
+        db.commit()
 
 
 def publish_due_checks(publisher: RabbitPublisher | None = None) -> int:
@@ -116,6 +128,11 @@ def run_forever() -> None:
             publish_due_checks(publisher)
         except Exception:  # noqa: BLE001
             logger.exception("scheduler iteration failed")
+        try:
+            # heartbeat после публикации: отражает, что итерация реально дошла до конца
+            write_heartbeat()
+        except Exception:  # noqa: BLE001
+            logger.exception("failed to write scheduler heartbeat")
         time.sleep(settings.scheduler_poll_seconds)
 
 

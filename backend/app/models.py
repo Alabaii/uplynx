@@ -114,6 +114,19 @@ class Monitor(Base):
     results: Mapped[list["CheckResult"]] = relationship(back_populates="monitor")
 
 
+class SchedulerHeartbeat(Base):
+    """Единственная строка (id=1): момент последнего тика шедулера.
+
+    Позволяет внешнему liveness-пробу заметить, что шедулер перестал публиковать
+    проверки. Не org-scoped — состояние процесса, а не данные арендатора.
+    """
+
+    __tablename__ = "scheduler_heartbeat"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    beat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class CheckResult(Base):
     __tablename__ = "check_results"
     __table_args__ = (
