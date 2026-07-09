@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     require_email_verification: bool = True
     verify_rate_limit_attempts: int = 5
     verify_rate_limit_window_seconds: int = 300
+    # rate-limit мутирующих запросов (POST/PUT/PATCH/DELETE вне /auth):
+    # щедрый потолок против скриптового злоупотребления, обычный UI его не достигает
+    mutation_rate_limit_attempts: int = 60
+    mutation_rate_limit_window_seconds: int = 60
     # SMTP для писем (сброс пароля, email-алерты); если host не задан — email отключён
     smtp_host: str | None = None
     smtp_port: int = 587

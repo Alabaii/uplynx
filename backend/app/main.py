@@ -9,10 +9,13 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.api.v1.endpoints.auth import client_ip
 from app.api.v1.router import api_router
 from app.core.config import get_settings, validate_jwt_secret
 from app.core.database import check_database, get_db
 from app.core.observability import HTTP_REQUEST_SECONDS, HTTP_REQUESTS, init_sentry
+from app.core.ratelimit import get_mutation_limiter
+from app.core.security import decode_access_token
 from app.models import Monitor, SchedulerHeartbeat
 
 settings = get_settings()
@@ -35,6 +38,34 @@ async def http_metrics(request: Request, call_next):  # type: ignore[no-untyped-
         HTTP_REQUESTS.labels(method=method, path=path, status=str(response.status_code)).inc()
         HTTP_REQUEST_SECONDS.labels(method=method, path=path).observe(time.perf_counter() - started)
     return response
+MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+@app.middleware("http")
+async def mutation_rate_limit(request: Request, call_next):  # type: ignore[no-untyped-def]
+    """Rate-limit мутаций (гигиена): защищает от скриптового злоупотребления записью.
+
+    /auth не трогаем — у логина/регистрации/восстановления свои, более строгие лимиты.
+    Ключ — user id из access-токена (токен здесь только парсится, полноценная
+    аутентификация остаётся за зависимостями эндпоинтов); без токена — IP:
+    неавторизованные мутации всё равно упрутся в 401, но и им не даём молотить.
+    """
+    path = request.url.path
+    if request.method in MUTATING_METHODS and path.startswith("/api/v1") and not path.startswith("/api/v1/auth"):
+        auth_header = request.headers.get("authorization") or ""
+        token = auth_header.removeprefix("Bearer ").strip()
+        subject = decode_access_token(token) if token else None
+        key = f"user:{subject}" if subject else f"ip:{client_ip(request)}"
+        retry_after = get_mutation_limiter().hit(key)
+        if retry_after is not None:
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Too many changes, slow down"},
+                headers={"Retry-After": str(int(retry_after) + 1)},
+            )
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
