@@ -11,6 +11,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from app.core.config import get_settings
+from app.core.ssrf import BlockedTargetError, validate_public_url
 from app.schemas import CheckTask
 
 ENV_PLACEHOLDER_RE = re.compile(r"\$\{([A-Z0-9_]+)\}")
@@ -68,9 +70,20 @@ async def run_http_check(task: CheckTask) -> dict[str, Any]:
     if not task.url:
         return {"status": "down", "response_time_ms": None, "error": "missing url", "details": {}}
     expected = task.config.get("expected") or {}
+    allow_private = get_settings().allow_private_targets
+
+    async def guard_request(request: httpx.Request) -> None:
+        # хук срабатывает и на исходный запрос, и на каждый редирект: Location
+        # может увести на приватный адрес в обход проверки начального URL
+        await asyncio.to_thread(validate_public_url, str(request.url), allow_private=allow_private)
+
     started = time.perf_counter()
     try:
-        async with httpx.AsyncClient(timeout=task.timeout_seconds, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=task.timeout_seconds,
+            follow_redirects=True,
+            event_hooks={"request": [guard_request]},
+        ) as client:
             response = await client.get(task.url)
         elapsed = int((time.perf_counter() - started) * 1000)
         check_status, error = classify_http_result(elapsed, response.status_code, response.text, expected)
@@ -85,6 +98,8 @@ async def run_http_check(task: CheckTask) -> dict[str, Any]:
             "error": error,
             "details": details,
         }
+    except BlockedTargetError as exc:
+        return {"status": "down", "response_time_ms": None, "error": str(exc), "details": {"blocked": True}}
     except Exception as exc:  # noqa: BLE001
         return {"status": "down", "response_time_ms": None, "error": str(exc), "details": {}}
 
@@ -138,6 +153,10 @@ async def execute_steps(page: Any, steps: list[dict[str, Any]]) -> None:
             step = resolve_env_placeholders(raw_step)
             action = step.get("action")
             if action == "goto":
+                # проверяем уже подставленный URL: ${VAR} не даёт валидировать его в API
+                await asyncio.to_thread(
+                    validate_public_url, step["url"], allow_private=get_settings().allow_private_targets
+                )
                 await page.goto(step["url"])
             elif action == "click":
                 await page.click(step["selector"])

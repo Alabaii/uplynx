@@ -46,6 +46,9 @@ services:
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
       # team (лимиты пользователей/мониторов) | enterprise (без лимитов)
       DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-team}
+      # SSRF-защита: false — мониторы не могут вести во внутреннюю сеть (SaaS);
+      # true — разрешить приватные адреса (on-prem мониторинг внутренних сервисов)
+      ALLOW_PRIVATE_TARGETS: ${ALLOW_PRIVATE_TARGETS:-false}
       # VAPID-ключи для web push (сгенерировать: python -m app.tools.vapid); пусто — push отключён
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
@@ -91,6 +94,8 @@ services:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_APP_USER:-monitor_app}:${POSTGRES_APP_PASSWORD:-monitor_app}@postgres:5432/${POSTGRES_DB:-monitor}
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-change-me}
+      # SSRF-защита: true разрешает мониторить приватные адреса (on-prem)
+      ALLOW_PRIVATE_TARGETS: ${ALLOW_PRIVATE_TARGETS:-false}
       # нужен воркерам для расшифровки bot token при отправке алертов
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
       # VAPID-ключи для web push (сгенерировать: python -m app.tools.vapid); пусто — push отключён
@@ -123,6 +128,8 @@ services:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_APP_USER:-monitor_app}:${POSTGRES_APP_PASSWORD:-monitor_app}@postgres:5432/${POSTGRES_DB:-monitor}
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-change-me}
+      # SSRF-защита: true разрешает мониторить приватные адреса (on-prem)
+      ALLOW_PRIVATE_TARGETS: ${ALLOW_PRIVATE_TARGETS:-false}
       # нужен воркерам для расшифровки bot token при отправке алертов
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
       BROWSER_CONCURRENCY: ${BROWSER_CONCURRENCY:-2}
