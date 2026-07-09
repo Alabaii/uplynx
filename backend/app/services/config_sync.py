@@ -9,8 +9,24 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.ssrf import BlockedTargetError, validate_public_url
 from app.models import ConfigVersion, Monitor, Organization, User
 from app.schemas import ConfigDocument, ConfigMonitor, MonitorCreate, MonitorUpdate
+
+
+def validate_target_url(url: str | None) -> None:
+    """Быстрая (без DNS) проверка URL монитора при создании/загрузке конфига.
+
+    Полную проверку с резолвом делает воркер перед запросом; здесь — мгновенный
+    фидбек на литеральный приватный IP / localhost. URL с плейсхолдером ${VAR}
+    пропускаем: реальное значение известно только воркеру.
+    """
+    if not url or "${" in url:
+        return
+    try:
+        validate_public_url(url, allow_private=get_settings().allow_private_targets, resolve=False)
+    except BlockedTargetError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 def parse_config(content: str, fmt: str) -> ConfigDocument:
@@ -116,6 +132,7 @@ def resync_monitors(db: Session, user: User, org: Organization, document: Config
     now = datetime.now(timezone.utc)
 
     for slug, cfg in incoming.items():
+        validate_target_url(cfg.url)
         config_json = payload_config_json(cfg)
         monitor = existing.get(slug)
         if monitor:
@@ -183,6 +200,7 @@ def persist_monitors_as_config(db: Session, user: User, org: Organization, fmt: 
 
 
 def create_monitor_from_payload(db: Session, user: User, org: Organization, payload: MonitorCreate) -> Monitor:
+    validate_target_url(payload.url)
     if db.scalar(select(Monitor).where(Monitor.org_id == org.id, Monitor.slug == payload.id)):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Monitor already exists")
     if payload.enabled:
@@ -213,6 +231,8 @@ def create_monitor_from_payload(db: Session, user: User, org: Organization, payl
 
 def update_monitor_from_payload(db: Session, user: User, org: Organization, monitor: Monitor, payload: MonitorUpdate) -> Monitor:
     data = payload.model_dump(exclude_unset=True)
+    if "url" in data:
+        validate_target_url(data["url"])
     config = dict(monitor.config_json or {})
     for field in ["name", "url", "interval", "enabled", "status"]:
         if field in data:

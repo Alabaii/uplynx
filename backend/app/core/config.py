@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     check_timeout_seconds: int = 30
     retention_days: int = 365
     browser_concurrency: int = 2
+    # SSRF-защита: по умолчанию мониторы не могут вести во внутреннюю сеть.
+    # on-prem-инсталляции ставят true, чтобы мониторить внутренние сервисы.
+    allow_private_targets: bool = False
     telegram_api_base: str = "https://api.telegram.org"
     # VAPID-ключи для web push (python -m app.tools.vapid); если не заданы — push отключён
     vapid_public_key: str | None = None
