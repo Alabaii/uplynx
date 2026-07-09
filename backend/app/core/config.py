@@ -65,12 +65,19 @@ class Settings(BaseSettings):
     smtp_starttls: bool = True
     # базовый URL приложения для ссылок в письмах
     app_base_url: str = "http://localhost:5173"
+    # платформенные суперадмины (админ-панель /admin): email через запятую;
+    # пусто — админ-панель недоступна никому
+    superuser_emails: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def superuser_emails_list(self) -> list[str]:
+        return [email.strip().lower() for email in self.superuser_emails.split(",") if email.strip()]
 
 
 def validate_jwt_secret(settings: Settings) -> None:

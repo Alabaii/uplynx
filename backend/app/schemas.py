@@ -78,6 +78,7 @@ class UserOrganizationRead(BaseModel):
 class MeRead(UserRead):
     organization: UserOrganizationRead
     email_verified: bool = True
+    is_superuser: bool = False
 
 
 class OrgRead(BaseModel):
@@ -388,3 +389,73 @@ class MetaRead(BaseModel):
     deployment_mode: Literal["team", "enterprise"]
     limits: DeploymentLimits | None = None
     email_enabled: bool = False
+
+
+class PlanRead(BaseModel):
+    slug: str
+    name: str
+    price_monthly_cents: int
+    annual_discount_pct: int
+    max_monitors: int
+    min_interval_seconds: int
+    max_browser_monitors: int
+    browser_min_interval_seconds: int
+    # None — без лимита участников
+    max_members: int | None = None
+    retention_days: int
+    sort_order: int
+    updated_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class PlanUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    price_monthly_cents: int | None = Field(default=None, ge=0)
+    annual_discount_pct: int | None = Field(default=None, ge=0, le=100)
+    max_monitors: int | None = Field(default=None, ge=1)
+    min_interval_seconds: int | None = Field(default=None, ge=10)
+    max_browser_monitors: int | None = Field(default=None, ge=0)
+    browser_min_interval_seconds: int | None = Field(default=None, ge=10)
+    # обнулить лимит участников нельзя пропуском поля — явный false в unlimited_members
+    max_members: int | None = Field(default=None, ge=1)
+    unlimited_members: bool = False
+    retention_days: int | None = Field(default=None, ge=1)
+
+
+class AdminSchedulerStatus(BaseModel):
+    beat_age_seconds: int | None = None
+    stale: bool = True
+    overdue_monitors: int = 0
+
+
+class AdminQueueDepth(BaseModel):
+    name: str
+    depth: int
+
+
+class AdminOverview(BaseModel):
+    users_total: int
+    orgs_total: int
+    monitors_total: int
+    monitors_enabled: int
+    monitors_browser: int
+    checks_24h: int
+    incidents_open: int
+    scheduler: AdminSchedulerStatus
+    # None — RabbitMQ недоступен (глубины очередей не сняты)
+    queues: list[AdminQueueDepth] | None = None
+
+
+class AdminOrgRead(BaseModel):
+    id: int
+    name: str
+    slug: str
+    plan_slug: str
+    members_count: int
+    monitors_count: int
+    created_at: datetime
+
+
+class OrgPlanUpdate(BaseModel):
+    plan_slug: str = Field(min_length=1, max_length=40)

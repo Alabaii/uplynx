@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
-import { Activity, LogOut, Search, Smartphone } from 'lucide-react';
+import { Activity, LogOut, Search, ShieldCheck, Smartphone } from 'lucide-react';
 import { clearSession, getSessionEmail } from '../auth';
 import { CommandPalette } from '../components/CommandPalette';
 import { EmailVerificationBanner } from '../components/EmailVerificationBanner';
@@ -27,6 +27,7 @@ export function AppLayout() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   // default true — не мигаем баннером до ответа /me
   const [emailVerified, setEmailVerified] = useState(true);
+  const [isSuperuser, setIsSuperuser] = useState(false);
   const isEnterprise = useDeploymentMode() === 'enterprise';
 
   useEffect(() => {
@@ -39,6 +40,7 @@ export function AppLayout() {
           setOrgName(user.organization?.name ?? 'My team');
           setOrgId(user.organization?.id ?? null);
           setEmailVerified(user.email_verified ?? true);
+          setIsSuperuser(user.is_superuser ?? false);
         }
       })
       .catch(() => {
@@ -70,7 +72,12 @@ export function AppLayout() {
     navigate('/login');
   };
 
-  const currentSection = navigation.find((item) =>
+  // /admin виден только суперадмину и только в десктопном сайдбаре:
+  // мобильная нижняя навигация фиксирована на 5 пунктах (grid-cols-5)
+  const adminItem = { to: '/admin', label: 'Admin', icon: ShieldCheck };
+  const sidebarNavigation = isSuperuser ? [...navigation, adminItem] : navigation;
+
+  const currentSection = sidebarNavigation.find((item) =>
     item.to === '/' ? location.pathname === '/' : location.pathname.startsWith(item.to)
   );
 
@@ -110,7 +117,7 @@ export function AppLayout() {
           </div>
 
           <nav className="mt-6 space-y-1">
-            {navigation.map((item) => (
+            {sidebarNavigation.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}

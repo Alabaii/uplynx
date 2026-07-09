@@ -5,6 +5,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import decode_access_token, decode_token_payload
 from app.models import Organization, OrgMember, User
@@ -31,6 +32,22 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     user = db.scalar(select(User).where(User.id == user_id))
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Inactive or missing user")
+    return user
+
+
+def is_superuser(user: User) -> bool:
+    """Платформенный суперадмин — по списку email в настройках (SUPERUSER_EMAILS)."""
+    return user.email.lower() in get_settings().superuser_emails_list
+
+
+def require_superuser(user: User = Depends(get_current_user)) -> User:
+    """Доступ к /admin: кросс-организационные запросы, RLS-контекст НЕ выставляется.
+
+    Политики org_isolation (0008) дают полный доступ, когда app.org_id не задан, —
+    для платформенной админки это осознанно.
+    """
+    if not is_superuser(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Requires platform admin access")
     return user
 
 

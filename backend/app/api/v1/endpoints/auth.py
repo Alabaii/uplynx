@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from app.api.deps import OrgContext, get_current_org_member
+from app.api.deps import OrgContext, get_current_org_member, is_superuser
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.ratelimit import (
@@ -335,6 +335,7 @@ def me(ctx: OrgContext = Depends(get_current_org_member)) -> MeRead:
         id=ctx.user.id,
         email=ctx.user.email,
         email_verified=email_verified,
+        is_superuser=is_superuser(ctx.user),
         organization=UserOrganizationRead(
             id=ctx.org.id,
             name=ctx.org.name,

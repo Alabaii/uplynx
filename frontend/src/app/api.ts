@@ -363,7 +363,74 @@ export function listAuditEvents(limit = 50, offset = 0) {
 }
 
 export function getMe() {
-  return request<{ id: number; email: string; email_verified?: boolean; organization?: OrganizationInfo }>('/auth/me');
+  return request<{
+    id: number;
+    email: string;
+    email_verified?: boolean;
+    is_superuser?: boolean;
+    organization?: OrganizationInfo;
+  }>('/auth/me');
+}
+
+export type Plan = {
+  slug: string;
+  name: string;
+  price_monthly_cents: number;
+  annual_discount_pct: number;
+  max_monitors: number;
+  min_interval_seconds: number;
+  max_browser_monitors: number;
+  browser_min_interval_seconds: number;
+  max_members: number | null;
+  retention_days: number;
+  sort_order: number;
+  updated_at: string | null;
+};
+
+export type PlanUpdatePayload = Partial<Omit<Plan, 'slug' | 'sort_order' | 'updated_at'>> & {
+  unlimited_members?: boolean;
+};
+
+export type AdminOverview = {
+  users_total: number;
+  orgs_total: number;
+  monitors_total: number;
+  monitors_enabled: number;
+  monitors_browser: number;
+  checks_24h: number;
+  incidents_open: number;
+  scheduler: { beat_age_seconds: number | null; stale: boolean; overdue_monitors: number };
+  queues: { name: string; depth: number }[] | null;
+};
+
+export type AdminOrg = {
+  id: number;
+  name: string;
+  slug: string;
+  plan_slug: string;
+  members_count: number;
+  monitors_count: number;
+  created_at: string;
+};
+
+export function getAdminOverview() {
+  return request<AdminOverview>('/admin/overview');
+}
+
+export function listPlans() {
+  return request<Plan[]>('/admin/plans');
+}
+
+export function updatePlan(slug: string, payload: PlanUpdatePayload) {
+  return request<Plan>(`/admin/plans/${encodeURIComponent(slug)}`, { method: 'PUT', body: payload });
+}
+
+export function listAdminOrgs() {
+  return request<AdminOrg[]>('/admin/orgs');
+}
+
+export function setOrgPlan(orgId: number, planSlug: string) {
+  return request<AdminOrg>(`/admin/orgs/${orgId}/plan`, { method: 'PUT', body: { plan_slug: planSlug } });
 }
 
 export function listMonitors() {
