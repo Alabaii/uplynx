@@ -9,6 +9,7 @@ from app.core.database import Base, get_db
 from app.core.ratelimit import (
     get_forgot_password_limiter,
     get_login_limiter,
+    get_mutation_limiter,
     get_register_limiter,
     get_verify_email_limiter,
 )
@@ -22,11 +23,13 @@ def reset_rate_limiters():
     get_register_limiter.cache_clear()
     get_forgot_password_limiter.cache_clear()
     get_verify_email_limiter.cache_clear()
+    get_mutation_limiter.cache_clear()
     yield
     get_login_limiter.cache_clear()
     get_register_limiter.cache_clear()
     get_forgot_password_limiter.cache_clear()
     get_verify_email_limiter.cache_clear()
+    get_mutation_limiter.cache_clear()
 
 
 @pytest.fixture()
