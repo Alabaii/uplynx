@@ -16,6 +16,21 @@ AssignableOrgRole = Literal["admin", "member", "viewer"]
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    # None — эндпоинт не выдаёт новую сессию (например, /orgs/switch без ротации)
+    refresh_token: str | None = None
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(min_length=1, max_length=200)
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: str = Field(min_length=1, max_length=200)
+
+
+class SwitchOrgRequest(BaseModel):
+    # refresh-сессия, которой переключают активную организацию; None — только access
+    refresh_token: str | None = Field(default=None, max_length=200)
 
 
 class UserCreate(BaseModel):

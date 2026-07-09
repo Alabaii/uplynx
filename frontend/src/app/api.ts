@@ -1,4 +1,4 @@
-import { clearSession, getAuthToken } from './auth';
+import { clearSession, createSession, getAuthToken, getRefreshToken } from './auth';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1';
 
@@ -100,7 +100,44 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+// single-flight: параллельные 401 ждут один общий refresh, а не плодят ротации
+let refreshPromise: Promise<boolean> | null = null;
+
+async function tryRefreshSession(): Promise<boolean> {
+  const refreshToken = getRefreshToken();
+
+  if (!refreshToken) {
+    return false;
+  }
+
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        });
+
+        if (!response.ok) {
+          return false;
+        }
+
+        const tokens = (await response.json()) as { access_token: string; refresh_token?: string | null };
+        createSession(tokens.access_token, undefined, tokens.refresh_token);
+        return true;
+      } catch {
+        return false;
+      } finally {
+        refreshPromise = null;
+      }
+    })();
+  }
+
+  return refreshPromise;
+}
+
+async function request<T>(path: string, options: RequestOptions = {}, isRetry = false): Promise<T> {
   const headers = new Headers(options.headers);
   const hasBody = options.body !== undefined;
 
@@ -123,6 +160,11 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   });
 
   if (response.status === 401 && options.auth !== false) {
+    // access истёк — пробуем продлить сессию refresh-токеном и повторить один раз
+    if (!isRetry && (await tryRefreshSession())) {
+      return request<T>(path, options, true);
+    }
+
     clearSession();
 
     if (!window.location.pathname.startsWith('/login')) {
@@ -159,9 +201,23 @@ export function register(email: string, password: string) {
 }
 
 export function login(email: string, password: string) {
-  return request<{ access_token: string; token_type: string }>('/auth/login', {
+  return request<{ access_token: string; token_type: string; refresh_token?: string | null }>('/auth/login', {
     method: 'POST',
     body: { email, password },
+    auth: false,
+  });
+}
+
+export function logout() {
+  const refreshToken = getRefreshToken();
+
+  if (!refreshToken) {
+    return Promise.resolve();
+  }
+
+  return request<void>('/auth/logout', {
+    method: 'POST',
+    body: { refresh_token: refreshToken },
     auth: false,
   });
 }
@@ -277,8 +333,11 @@ export function listOrgs() {
 }
 
 export function switchOrg(orgId: number) {
+  // refresh-сессии переключается активная организация — после продления
+  // токена пользователь остаётся в выбранной организации
   return request<{ access_token: string; token_type: string }>(`/orgs/${orgId}/switch`, {
     method: 'POST',
+    body: { refresh_token: getRefreshToken() },
   });
 }
 

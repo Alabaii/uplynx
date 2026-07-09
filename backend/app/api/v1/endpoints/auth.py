@@ -15,11 +15,13 @@ from app.core.ratelimit import (
     get_register_limiter,
     get_verify_email_limiter,
 )
-from app.core.security import create_access_token, hash_password, verify_password
-from app.models import EmailVerificationToken, OrgMember, PasswordResetToken, User
+from app.core.security import create_access_token, hash_password, hash_token, verify_password
+from app.models import EmailVerificationToken, OrgMember, PasswordResetToken, RefreshToken, User
 from app.schemas import (
     ForgotPasswordRequest,
+    LogoutRequest,
     MeRead,
+    RefreshRequest,
     ResendVerificationRequest,
     ResetPasswordRequest,
     Token,
@@ -71,6 +73,28 @@ def send_verification_email(email: str, token: str) -> None:
         "Confirm your email address to activate your PWA Monitor account:\n\n"
         f"{link}\n\n"
         "The link expires in 24 hours. If you did not create an account, ignore this email.\n",
+    )
+
+
+def issue_refresh_token(db: Session, user: User, org_id: int | None) -> str:
+    """Создаёт refresh-сессию в db-сессии (без commit); возвращает сырой токен."""
+    token = secrets.token_urlsafe(48)
+    db.add(
+        RefreshToken(
+            user_id=user.id,
+            token_hash=hash_token(token),
+            org_id=org_id,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=get_settings().refresh_token_expire_days),
+        )
+    )
+    return token
+
+
+def revoke_all_refresh_tokens(db: Session, user_id: int) -> None:
+    db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=datetime.now(timezone.utc))
     )
 
 
@@ -144,7 +168,60 @@ def login(payload: UserLogin, request: Request, db: Session = Depends(get_db)) -
         select(OrgMember.org_id).where(OrgMember.user_id == user.id).order_by(OrgMember.id).limit(1)
     )
     extra_claims = {"org_id": org_id} if org_id is not None else None
-    return Token(access_token=create_access_token(str(user.id), extra_claims=extra_claims))
+    refresh_token = issue_refresh_token(db, user, org_id)
+    db.commit()
+    return Token(
+        access_token=create_access_token(str(user.id), extra_claims=extra_claims),
+        refresh_token=refresh_token,
+    )
+
+
+@router.post("/refresh", response_model=Token)
+def refresh(payload: RefreshRequest, db: Session = Depends(get_db)) -> Token:
+    """Скользящая ротация: старый refresh гасится, выдаётся новая пара access+refresh."""
+    invalid = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+    session = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == hash_token(payload.refresh_token)))
+    if session is None:
+        raise invalid
+    now = datetime.now(timezone.utc)
+    if session.revoked_at is not None:
+        # повторное предъявление отозванного токена — признак кражи: гасим все сессии пользователя
+        revoke_all_refresh_tokens(db, session.user_id)
+        db.commit()
+        raise invalid
+    expires_at = session.expires_at if session.expires_at.tzinfo else session.expires_at.replace(tzinfo=timezone.utc)
+    if expires_at <= now:
+        raise invalid
+    user = db.get(User, session.user_id)
+    if not user or not user.is_active:
+        raise invalid
+    # членство могло измениться с момента логина — org сессии проверяется заново
+    org_id = session.org_id
+    if org_id is not None and not db.scalar(
+        select(OrgMember.id).where(OrgMember.org_id == org_id, OrgMember.user_id == user.id)
+    ):
+        org_id = None
+    if org_id is None:
+        org_id = db.scalar(
+            select(OrgMember.org_id).where(OrgMember.user_id == user.id).order_by(OrgMember.id).limit(1)
+        )
+    session.revoked_at = now
+    new_refresh = issue_refresh_token(db, user, org_id)
+    db.commit()
+    extra_claims = {"org_id": org_id} if org_id is not None else None
+    return Token(
+        access_token=create_access_token(str(user.id), extra_claims=extra_claims),
+        refresh_token=new_refresh,
+    )
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(payload: LogoutRequest, db: Session = Depends(get_db)) -> None:
+    # всегда 204: логаут идемпотентен, существование токена не раскрывается
+    session = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == hash_token(payload.refresh_token)))
+    if session is not None and session.revoked_at is None:
+        session.revoked_at = datetime.now(timezone.utc)
+        db.commit()
 
 
 @router.post("/forgot-password", status_code=status.HTTP_204_NO_CONTENT)
@@ -196,6 +273,8 @@ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db))
         raise invalid
     user.hashed_password = hash_password(payload.new_password)
     reset.used_at = datetime.now(timezone.utc)
+    # смена пароля убивает все сессии: украденный refresh-токен перестаёт работать
+    revoke_all_refresh_tokens(db, user.id)
     org_id = db.scalar(
         select(OrgMember.org_id).where(OrgMember.user_id == user.id).order_by(OrgMember.id).limit(1)
     )

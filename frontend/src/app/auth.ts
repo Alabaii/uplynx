@@ -1,6 +1,8 @@
 const AUTH_TOKEN_KEY = 'uplynx.auth.token';
 const AUTH_EXPIRES_AT_KEY = 'uplynx.auth.expiresAt';
 const AUTH_EMAIL_KEY = 'uplynx.auth.email';
+// refresh живёт в localStorage: 30-дневная сессия переживает закрытие вкладки
+const REFRESH_TOKEN_KEY = 'uplynx.auth.refreshToken';
 const FALLBACK_SESSION_TTL_MS = 60 * 60 * 1000;
 
 function now() {
@@ -18,7 +20,7 @@ function decodeTokenExpiry(token: string): number | null {
   }
 }
 
-export function createSession(token: string, email?: string) {
+export function createSession(token: string, email?: string, refreshToken?: string | null) {
   const expiresAt = decodeTokenExpiry(token) ?? now() + FALLBACK_SESSION_TTL_MS;
 
   sessionStorage.setItem(AUTH_TOKEN_KEY, token);
@@ -27,14 +29,22 @@ export function createSession(token: string, email?: string) {
   if (email) {
     sessionStorage.setItem(AUTH_EMAIL_KEY, email);
   }
+
+  if (refreshToken) {
+    localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+  }
 }
 
 export function getAuthToken() {
-  if (!hasValidSession()) {
+  if (!hasFreshAccessToken()) {
     return null;
   }
 
   return sessionStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+export function getRefreshToken() {
+  return localStorage.getItem(REFRESH_TOKEN_KEY);
 }
 
 export function getSessionEmail() {
@@ -45,19 +55,25 @@ export function clearSession() {
   sessionStorage.removeItem(AUTH_TOKEN_KEY);
   sessionStorage.removeItem(AUTH_EXPIRES_AT_KEY);
   sessionStorage.removeItem(AUTH_EMAIL_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
 
   // Clean up the previous mock auth value if it exists from older builds.
   localStorage.removeItem('token');
 }
 
-export function hasValidSession() {
+function hasFreshAccessToken() {
   const token = sessionStorage.getItem(AUTH_TOKEN_KEY);
   const expiresAt = Number(sessionStorage.getItem(AUTH_EXPIRES_AT_KEY));
 
-  if (!token || !Number.isFinite(expiresAt) || expiresAt <= now()) {
-    clearSession();
-    return false;
+  return Boolean(token) && Number.isFinite(expiresAt) && expiresAt > now();
+}
+
+export function hasValidSession() {
+  // живой access ИЛИ refresh: с коротким access сессию продлевает первый же
+  // API-запрос (401 → refresh → повтор), выкидывать на /login рано
+  if (hasFreshAccessToken()) {
+    return true;
   }
 
-  return true;
+  return Boolean(getRefreshToken());
 }

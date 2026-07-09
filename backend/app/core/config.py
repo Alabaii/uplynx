@@ -16,7 +16,9 @@ class Settings(BaseSettings):
     rabbitmq_url: str = "amqp://guest:guest@rabbitmq:5672/"
     jwt_secret_key: str = Field(default="change-me-in-production", min_length=16)
     jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 60 * 24
+    # короткий access + refresh с ротацией: отзыв сессии срабатывает максимум за 15 минут
+    access_token_expire_minutes: int = 15
+    refresh_token_expire_days: int = 30
     scheduler_poll_seconds: int = 5
     # максимум мониторов одной организации в батче шедулера (fair scheduling)
     scheduler_org_batch_limit: int = 200

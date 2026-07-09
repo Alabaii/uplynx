@@ -7,9 +7,19 @@ from sqlalchemy.orm import Session
 from app.api.deps import OrgContext, get_current_org_member, get_current_user, require_role
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.core.security import create_access_token
-from app.models import AuditLog, Organization, OrgMember, User
-from app.schemas import AuditLogRead, OrgCreate, OrgMemberAdd, OrgMemberRead, OrgMemberUpdate, OrgRead, OrgUpdate, Token
+from app.core.security import create_access_token, hash_token
+from app.models import AuditLog, Organization, OrgMember, RefreshToken, User
+from app.schemas import (
+    AuditLogRead,
+    OrgCreate,
+    OrgMemberAdd,
+    OrgMemberRead,
+    OrgMemberUpdate,
+    OrgRead,
+    OrgUpdate,
+    SwitchOrgRequest,
+    Token,
+)
 from app.services.audit import record
 from app.services.email import send_email
 from app.services.orgs import enforce_member_quota
@@ -103,12 +113,26 @@ def update_current_org(
 @router.post("/{org_id}/switch", response_model=Token)
 def switch_org(
     org_id: int,
+    payload: SwitchOrgRequest | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Token:
     member = db.scalar(select(OrgMember).where(OrgMember.org_id == org_id, OrgMember.user_id == user.id))
     if not member:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this organization")
+    if payload and payload.refresh_token:
+        # переключаем активную организацию refresh-сессии: после истечения access
+        # refresh выдаст токен с той же организацией, а не вернёт пользователя в первую
+        session = db.scalar(
+            select(RefreshToken).where(
+                RefreshToken.token_hash == hash_token(payload.refresh_token),
+                RefreshToken.user_id == user.id,
+                RefreshToken.revoked_at.is_(None),
+            )
+        )
+        if session is not None:
+            session.org_id = org_id
+            db.commit()
     return Token(access_token=create_access_token(str(user.id), extra_claims={"org_id": org_id}))
 
 

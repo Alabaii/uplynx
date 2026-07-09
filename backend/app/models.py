@@ -56,6 +56,28 @@ class PasswordResetToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
+class RefreshToken(Base):
+    """Сессия пользователя: длинный refresh-токен с ротацией.
+
+    В БД только sha256-hex. revoked_at ставится при ротации/логауте/сбросе пароля;
+    предъявление отозванного токена — признак кражи, гасит все сессии пользователя.
+    org_id — активная организация сессии (переносится в org_id claim access-токена).
+    """
+
+    __tablename__ = "refresh_tokens"
+    __table_args__ = (
+        Index("ix_refresh_tokens_user_id", "user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    org_id: Mapped[int | None] = mapped_column(ForeignKey("organizations.id", ondelete="SET NULL"))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
 class EmailVerificationToken(Base):
     __tablename__ = "email_verification_tokens"
     __table_args__ = (
