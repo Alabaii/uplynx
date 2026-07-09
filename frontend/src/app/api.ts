@@ -76,7 +76,6 @@ export type ConfigVersion = {
 export type CheckDetails = {
   steps?: number;
   failed_step?: { index: number; action: string; selector?: string; url?: string; contains?: string };
-  screenshot?: string | null;
   final_url?: string;
   [k: string]: unknown;
 };

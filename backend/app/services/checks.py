@@ -1,5 +1,4 @@
 import asyncio
-import base64
 import os
 import re
 import socket
@@ -139,14 +138,6 @@ def failed_step_details(failure: StepFailure) -> dict[str, Any]:
     return details
 
 
-async def capture_screenshot(page: Any) -> str | None:
-    try:
-        raw = await page.screenshot(type="jpeg", quality=50)
-        return base64.b64encode(raw).decode("ascii")
-    except Exception:  # noqa: BLE001
-        return None
-
-
 async def execute_steps(page: Any, steps: list[dict[str, Any]]) -> None:
     for index, raw_step in enumerate(steps, start=1):
         try:
@@ -205,7 +196,6 @@ class PlaywrightBrowserRunner:
                             "details": {
                                 "steps": len(steps),
                                 "failed_step": failed_step_details(failure),
-                                "screenshot": await capture_screenshot(page),
                             },
                         }
                     return {

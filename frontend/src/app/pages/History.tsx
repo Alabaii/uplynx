@@ -190,6 +190,7 @@ export default function History() {
                       {Object.keys(check.details).length > 0 && (
                         <div className="mt-3 space-y-1 font-mono text-xs text-placeholder">
                           {Object.entries(check.details)
+                            // screenshot — устаревшее поле старых записей (base64), в UI не показываем
                             .filter(([key]) => key !== 'screenshot' && key !== 'failed_step')
                             .map(([key, value]) => (
                               <div key={key}>
@@ -197,13 +198,6 @@ export default function History() {
                               </div>
                             ))}
                         </div>
-                      )}
-                      {check.details.screenshot && (
-                        <img
-                          src={`data:image/jpeg;base64,${check.details.screenshot}`}
-                          alt={`Screenshot of failed check at ${new Date(check.timestamp).toLocaleString()}`}
-                          className="mt-3 max-h-40 rounded-lg border border-border"
-                        />
                       )}
                     </div>
                   </div>

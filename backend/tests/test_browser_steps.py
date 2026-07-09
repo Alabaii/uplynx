@@ -1,5 +1,3 @@
-import base64
-
 import pytest
 
 from app.schemas import CheckTask
@@ -49,12 +47,11 @@ class FakeLocator:
 
 
 class FakePage:
-    def __init__(self, content_text="", inner_texts=None, url="https://example.com/", screenshot_raises=False):
+    def __init__(self, content_text="", inner_texts=None, url="https://example.com/"):
         self.calls = []
         self.url = url
         self._content = content_text
         self._inner_texts = inner_texts or {}
-        self._screenshot_raises = screenshot_raises
 
     def set_default_timeout(self, ms):
         self.calls.append(("set_default_timeout", ms))
@@ -78,12 +75,6 @@ class FakePage:
     async def content(self):
         self.calls.append(("content",))
         return self._content
-
-    async def screenshot(self, type=None, quality=None):
-        self.calls.append(("screenshot", type, quality))
-        if self._screenshot_raises:
-            raise RuntimeError("page is dead")
-        return b"fake-jpeg"
 
 
 @pytest.mark.asyncio
@@ -206,7 +197,7 @@ async def test_runner_success_details_final_url(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_runner_failure_details_failed_step_and_screenshot(monkeypatch):
+async def test_runner_failure_details_failed_step(monkeypatch):
     page = FakePage(url="https://example.com/login")
     browser = FakeBrowser(page)
     patch_playwright(monkeypatch, browser)
@@ -219,21 +210,19 @@ async def test_runner_failure_details_failed_step_and_screenshot(monkeypatch):
     assert result["error"] == "step 2 (assert_url): url does not contain 'dashboard': https://example.com/login"
     assert result["details"]["steps"] == 2
     assert result["details"]["failed_step"] == {"index": 2, "action": "assert_url", "contains": "dashboard"}
-    assert result["details"]["screenshot"] == base64.b64encode(b"fake-jpeg").decode("ascii")
+    assert "screenshot" not in result["details"]
     assert browser.closed is True
 
 
 @pytest.mark.asyncio
-async def test_runner_failure_screenshot_null_when_page_dead(monkeypatch):
-    page = FakePage(screenshot_raises=True)
+async def test_runner_failure_on_unknown_action(monkeypatch):
+    page = FakePage()
     browser = FakeBrowser(page)
     patch_playwright(monkeypatch, browser)
 
-    # FakePage выполняет любые click/goto успешно — заставим падение неизвестным действием
     result = await PlaywrightBrowserRunner().run(make_browser_task([{"action": "hover", "selector": "#x"}]))
     assert result["status"] == "down"
     assert result["details"]["failed_step"] == {"index": 1, "action": "hover", "selector": "#x"}
-    assert result["details"]["screenshot"] is None
 
 
 # --- схема: новые действия проходят parse_config и переживают round-trip ---

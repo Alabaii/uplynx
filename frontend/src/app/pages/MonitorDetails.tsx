@@ -465,13 +465,6 @@ export default function MonitorDetails() {
                     {check.details.failed_step.selector ?? check.details.failed_step.url ?? check.details.failed_step.contains ?? ''}
                   </p>
                 )}
-                {check.details.screenshot && (
-                  <img
-                    src={`data:image/jpeg;base64,${check.details.screenshot}`}
-                    alt={`Screenshot of failed check at ${new Date(check.timestamp).toLocaleString()}`}
-                    className="mt-3 max-h-40 rounded-lg border border-border"
-                  />
-                )}
               </div>
             ))
           )}
