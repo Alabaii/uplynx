@@ -37,6 +37,14 @@ class ResetPasswordRequest(BaseModel):
     new_password: str = Field(min_length=8, max_length=200)
 
 
+class VerifyEmailRequest(BaseModel):
+    token: str = Field(min_length=1, max_length=200)
+
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+
 class UserRead(BaseModel):
     id: int
     email: EmailStr
@@ -54,6 +62,7 @@ class UserOrganizationRead(BaseModel):
 
 class MeRead(UserRead):
     organization: UserOrganizationRead
+    email_verified: bool = True
 
 
 class OrgRead(BaseModel):

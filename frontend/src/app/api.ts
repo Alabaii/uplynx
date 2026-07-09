@@ -183,6 +183,22 @@ export function resetPassword(token: string, password: string) {
   });
 }
 
+export function verifyEmail(token: string) {
+  return request<void>('/auth/verify-email', {
+    method: 'POST',
+    body: { token },
+    auth: false,
+  });
+}
+
+export function resendVerification(email: string) {
+  return request<void>('/auth/resend-verification', {
+    method: 'POST',
+    body: { email },
+    auth: false,
+  });
+}
+
 export type DeploymentMode = 'team' | 'enterprise';
 
 export type DeploymentLimits = {
@@ -289,7 +305,7 @@ export function listAuditEvents(limit = 50, offset = 0) {
 }
 
 export function getMe() {
-  return request<{ id: number; email: string; organization?: OrganizationInfo }>('/auth/me');
+  return request<{ id: number; email: string; email_verified?: boolean; organization?: OrganizationInfo }>('/auth/me');
 }
 
 export function listMonitors() {

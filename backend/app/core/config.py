@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     register_rate_limit_window_seconds: int = 300
     forgot_rate_limit_attempts: int = 5
     forgot_rate_limit_window_seconds: int = 300
+    # требовать подтверждение email перед входом; действует только если задан SMTP
+    # (иначе письмо не отправить) — на dev/self-hosted без почты вход не блокируется
+    require_email_verification: bool = True
+    verify_rate_limit_attempts: int = 5
+    verify_rate_limit_window_seconds: int = 300
     # SMTP для писем (сброс пароля, email-алерты); если host не задан — email отключён
     smtp_host: str | None = None
     smtp_port: int = 587

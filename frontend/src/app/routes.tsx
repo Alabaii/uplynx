@@ -7,6 +7,7 @@ import { hasValidSession } from './auth';
 const AuthPage = React.lazy(() => import('./pages/Auth'));
 const ForgotPasswordPage = React.lazy(() => import('./pages/ForgotPassword'));
 const ResetPasswordPage = React.lazy(() => import('./pages/ResetPassword'));
+const VerifyEmailPage = React.lazy(() => import('./pages/VerifyEmail'));
 const Dashboard = React.lazy(() => import('./pages/Dashboard'));
 const AddMonitor = React.lazy(() => import('./pages/AddMonitor'));
 const MonitorDetails = React.lazy(() => import('./pages/MonitorDetails'));
@@ -41,6 +42,7 @@ export const router = createBrowserRouter([
   { path: '/register', element: withSuspense(<AuthPage />) },
   { path: '/forgot-password', element: withSuspense(<ForgotPasswordPage />) },
   { path: '/reset-password', element: withSuspense(<ResetPasswordPage />) },
+  { path: '/verify-email', element: withSuspense(<VerifyEmailPage />) },
   { path: '/status/:slug', element: withSuspense(<StatusPage />) },
   {
     path: '/',

@@ -9,26 +9,69 @@ from sqlalchemy.orm import Session
 from app.api.deps import OrgContext, get_current_org_member
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.core.ratelimit import get_forgot_password_limiter, get_login_limiter, get_register_limiter
+from app.core.ratelimit import (
+    get_forgot_password_limiter,
+    get_login_limiter,
+    get_register_limiter,
+    get_verify_email_limiter,
+)
 from app.core.security import create_access_token, hash_password, verify_password
-from app.models import OrgMember, PasswordResetToken, User
+from app.models import EmailVerificationToken, OrgMember, PasswordResetToken, User
 from app.schemas import (
     ForgotPasswordRequest,
     MeRead,
+    ResendVerificationRequest,
     ResetPasswordRequest,
     Token,
     UserCreate,
     UserLogin,
     UserOrganizationRead,
     UserRead,
+    VerifyEmailRequest,
 )
 from app.services.audit import record
-from app.services.email import send_email
+from app.services.email import email_enabled, send_email
 from app.services.orgs import enforce_member_quota, ensure_membership, get_or_create_default_org
 
 router = APIRouter()
 
 RESET_TOKEN_TTL = timedelta(hours=1)
+VERIFY_TOKEN_TTL = timedelta(hours=24)
+
+
+def verification_required() -> bool:
+    """Гейт активен только если можем отправить письмо — иначе вход не заблокировать."""
+    return get_settings().require_email_verification and email_enabled()
+
+
+def issue_verification_token(db: Session, user: User) -> str:
+    """Создаёт токен верификации в сессии (без commit) и гасит прежние неиспользованные."""
+    now = datetime.now(timezone.utc)
+    db.execute(
+        update(EmailVerificationToken)
+        .where(EmailVerificationToken.user_id == user.id, EmailVerificationToken.used_at.is_(None))
+        .values(used_at=now)
+    )
+    token = secrets.token_urlsafe(32)
+    db.add(
+        EmailVerificationToken(
+            user_id=user.id,
+            token_hash=hashlib.sha256(token.encode("utf-8")).hexdigest(),
+            expires_at=now + VERIFY_TOKEN_TTL,
+        )
+    )
+    return token
+
+
+def send_verification_email(email: str, token: str) -> None:
+    link = f"{get_settings().app_base_url}/verify-email?token={token}"
+    send_email(
+        email,
+        "Verify your PWA Monitor email",
+        "Confirm your email address to activate your PWA Monitor account:\n\n"
+        f"{link}\n\n"
+        "The link expires in 24 hours. If you did not create an account, ignore this email.\n",
+    )
 
 
 def client_ip(request: Request) -> str:
@@ -72,8 +115,12 @@ def register(payload: UserCreate, request: Request, db: Session = Depends(get_db
     enforce_member_quota(db, org)
     ensure_membership(db, user, org)
     record(db, org_id=org.id, user_id=user.id, action="auth.register", entity="user", entity_id=str(user.id), payload={})
+    verify_token = issue_verification_token(db, user) if verification_required() else None
     db.commit()
     db.refresh(user)
+    if verify_token:
+        # письмо — после commit, чтобы токен уже был в БД
+        send_verification_email(user.email, verify_token)
     return user
 
 
@@ -85,6 +132,11 @@ def login(payload: UserLogin, request: Request, db: Session = Depends(get_db)) -
     user = db.scalar(select(User).where(User.email == payload.email.lower()))
     if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    if verification_required() and user.email_verified_at is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email not verified. Check your inbox for the verification link.",
+        )
     # успешный вход сбрасывает счётчик неудачных попыток
     limiter.reset(limiter_key)
     # активная организация = единственное/первое членство
@@ -160,11 +212,50 @@ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db))
     db.commit()
 
 
+@router.post("/verify-email", status_code=status.HTTP_204_NO_CONTENT)
+def verify_email(payload: VerifyEmailRequest, db: Session = Depends(get_db)) -> None:
+    token_hash = hashlib.sha256(payload.token.encode("utf-8")).hexdigest()
+    token = db.scalar(select(EmailVerificationToken).where(EmailVerificationToken.token_hash == token_hash))
+    invalid = HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired token")
+    if not token or token.used_at is not None:
+        raise invalid
+    expires_at = token.expires_at if token.expires_at.tzinfo else token.expires_at.replace(tzinfo=timezone.utc)
+    if expires_at <= datetime.now(timezone.utc):
+        raise invalid
+    user = db.get(User, token.user_id)
+    if not user:
+        raise invalid
+    now = datetime.now(timezone.utc)
+    if user.email_verified_at is None:
+        user.email_verified_at = now
+    token.used_at = now
+    db.commit()
+
+
+@router.post("/resend-verification", status_code=status.HTTP_204_NO_CONTENT)
+def resend_verification(
+    payload: ResendVerificationRequest, request: Request, db: Session = Depends(get_db)
+) -> None:
+    # всегда 204 — существование аккаунта и статус верификации не раскрываются
+    enforce_rate_limit(get_verify_email_limiter(), f"verify:{client_ip(request)}")
+    if not verification_required():
+        return
+    user = db.scalar(select(User).where(User.email == payload.email.lower()))
+    if not user or user.email_verified_at is not None:
+        return
+    token = issue_verification_token(db, user)
+    db.commit()
+    send_verification_email(user.email, token)
+
+
 @router.get("/me", response_model=MeRead)
 def me(ctx: OrgContext = Depends(get_current_org_member)) -> MeRead:
+    # verified=True, когда подтверждение не требуется — фронту нечего показывать
+    email_verified = ctx.user.email_verified_at is not None or not verification_required()
     return MeRead(
         id=ctx.user.id,
         email=ctx.user.email,
+        email_verified=email_verified,
         organization=UserOrganizationRead(
             id=ctx.org.id,
             name=ctx.org.name,

@@ -5,7 +5,7 @@ import { Button } from '../components/ui/Button';
 import { Card, CardContent } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { createSession } from '../auth';
-import { ApiError, login, register } from '../api';
+import { ApiError, login, register, resendVerification } from '../api';
 
 const featureCopy = [
   {
@@ -31,13 +31,28 @@ export default function AuthPage() {
   const isRegister = location.pathname === '/register';
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // email, для которого требуется подтверждение (гейт вернул 403) — показываем resend
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
+  const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent'>('idle');
 
   const submitLabel = useMemo(() => (isRegister ? 'Create account' : 'Sign in'), [isRegister]);
+
+  const handleResend = async () => {
+    if (!pendingEmail || resendState !== 'idle') return;
+    setResendState('sending');
+    try {
+      await resendVerification(pendingEmail);
+    } finally {
+      setResendState('sent');
+    }
+  };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setLoading(true);
     setError('');
+    setPendingEmail(null);
+    setResendState('idle');
 
     const formData = new FormData(event.currentTarget);
     const email = String(formData.get('email') ?? '');
@@ -62,7 +77,17 @@ export default function AuthPage() {
       createSession(token.access_token, email);
       navigate('/');
     } catch (error) {
-      setError(error instanceof ApiError ? error.message : 'Unable to authenticate. Check backend availability.');
+      // 403 на этой странице = требуется подтверждение email (после register или login)
+      if (error instanceof ApiError && error.status === 403) {
+        setPendingEmail(email);
+        setError(
+          isRegister
+            ? 'Account created. Confirm your email to sign in — we just sent you a verification link.'
+            : error.message
+        );
+      } else {
+        setError(error instanceof ApiError ? error.message : 'Unable to authenticate. Check backend availability.');
+      }
     } finally {
       setLoading(false);
     }
@@ -153,6 +178,23 @@ export default function AuthPage() {
               {error && (
                 <div className="rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
                   {error}
+                </div>
+              )}
+
+              {pendingEmail && (
+                <div className="text-sm text-muted-foreground">
+                  {resendState === 'sent' ? (
+                    <span className="font-semibold text-primary">Verification email sent.</span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleResend}
+                      disabled={resendState === 'sending'}
+                      className="font-semibold text-primary hover:text-primary-hover disabled:opacity-60"
+                    >
+                      {resendState === 'sending' ? 'Sending...' : 'Resend verification email'}
+                    </button>
+                  )}
                 </div>
               )}
 
