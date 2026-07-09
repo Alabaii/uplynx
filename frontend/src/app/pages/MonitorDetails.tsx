@@ -353,6 +353,27 @@ export default function MonitorDetails() {
               </div>
             )}
 
+            {monitor.ssl_expires_at && (
+              <div className="rounded-lg bg-secondary p-4">
+                <p className="font-semibold text-foreground">SSL certificate</p>
+                <p
+                  className={cn(
+                    'mt-2',
+                    (monitor.ssl_days_left ?? 0) <= 7
+                      ? 'font-semibold text-status-down'
+                      : (monitor.ssl_days_left ?? 0) <= 14
+                        ? 'font-semibold text-status-degraded'
+                        : undefined
+                  )}
+                >
+                  {monitor.ssl_days_left !== null && monitor.ssl_days_left !== undefined && monitor.ssl_days_left <= 0
+                    ? 'Expired'
+                    : `Expires in ${monitor.ssl_days_left} days`}{' '}
+                  ({new Date(monitor.ssl_expires_at).toLocaleDateString()})
+                </p>
+              </div>
+            )}
+
             <div className="rounded-lg bg-secondary p-4">
               <p className="font-semibold text-foreground">Last check</p>
               {lastCheck ? (

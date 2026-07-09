@@ -1,4 +1,31 @@
+from datetime import datetime
+
 from app.models import CheckResult, Monitor
+
+# пороги ssl-алертов в днях до истечения сертификата; алерт шлётся один раз на порог
+SSL_ALERT_THRESHOLDS = (30, 14, 7, 1)
+
+
+def ssl_threshold_to_alert(days_left: int, already_alerted_days: int | None) -> int | None:
+    """Самый острый пересечённый порог, по которому ещё не алертили; None — алерт не нужен."""
+    crossed = [threshold for threshold in SSL_ALERT_THRESHOLDS if days_left <= threshold]
+    if not crossed:
+        return None
+    tightest = min(crossed)
+    if already_alerted_days is not None and tightest >= already_alerted_days:
+        return None
+    return tightest
+
+
+def build_ssl_alert_text(monitor: Monitor, days_left: int, expires_at: datetime) -> str:
+    date = expires_at.date().isoformat()
+    if days_left < 0:
+        when = f"expired {-days_left} day(s) ago"
+    elif days_left == 0:
+        when = "expires today"
+    else:
+        when = f"expires in {days_left} day(s)"
+    return f"[ssl] {monitor.name} ({monitor.slug}): TLS certificate {when} ({date})"
 
 
 def alert_scope_for_result(previous_status: str | None, result_status: str) -> str | None:

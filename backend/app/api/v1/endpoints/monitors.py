@@ -26,10 +26,13 @@ from app.services.uptime import collect_uptime_stats
 router = APIRouter()
 
 
-def get_publisher() -> RabbitPublisher:
-    # per-request подключение: pika BlockingConnection не потокобезопасен,
-    # а sync-эндпоинты FastAPI выполняются в пуле потоков
-    return RabbitPublisher()
+def ssl_days_left(monitor: Monitor) -> int | None:
+    if monitor.ssl_expires_at is None:
+        return None
+    expires = monitor.ssl_expires_at
+    if expires.tzinfo is None:  # sqlite отдаёт naive datetime
+        expires = expires.replace(tzinfo=timezone.utc)
+    return (expires - datetime.now(timezone.utc)).days
 
 
 def to_monitor_read(monitor: Monitor, in_maintenance: bool = False) -> MonitorRead:
@@ -45,6 +48,8 @@ def to_monitor_read(monitor: Monitor, in_maintenance: bool = False) -> MonitorRe
         confirmations=(monitor.config_json or {}).get("confirmations", 1),
         config=monitor.config_json or {},
         in_maintenance=in_maintenance,
+        ssl_expires_at=monitor.ssl_expires_at,
+        ssl_days_left=ssl_days_left(monitor),
     )
 
 

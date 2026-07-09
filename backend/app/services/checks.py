@@ -1,14 +1,49 @@
+import asyncio
 import base64
 import os
 import re
+import socket
+import ssl
 import time
+from datetime import datetime, timezone
 from typing import Any, Protocol
+from urllib.parse import urlparse
 
 import httpx
 
 from app.schemas import CheckTask
 
 ENV_PLACEHOLDER_RE = re.compile(r"\$\{([A-Z0-9_]+)\}")
+
+# формат notAfter в getpeercert(): 'Jun  1 12:00:00 2027 GMT'
+CERT_DATE_FORMAT = "%b %d %H:%M:%S %Y %Z"
+
+
+def parse_cert_not_after(not_after: str) -> datetime:
+    return datetime.strptime(not_after, CERT_DATE_FORMAT).replace(tzinfo=timezone.utc)
+
+
+def fetch_ssl_expiry(url: str, timeout: float = 10.0) -> datetime | None:
+    """Срок действия TLS-сертификата https-хоста; None — не https или получить не удалось."""
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        return None
+    try:
+        context = ssl.create_default_context()
+        with socket.create_connection((parsed.hostname, parsed.port or 443), timeout=timeout) as sock:
+            with context.wrap_socket(sock, server_hostname=parsed.hostname) as tls:
+                cert = tls.getpeercert()
+        not_after = (cert or {}).get("notAfter")
+        return parse_cert_not_after(not_after) if not_after else None
+    except Exception:  # noqa: BLE001 — сбой получения сертификата не должен ломать проверку
+        return None
+
+
+def ssl_details(expires_at: datetime | None) -> dict[str, Any] | None:
+    if expires_at is None:
+        return None
+    days_left = (expires_at - datetime.now(timezone.utc)).days
+    return {"expires_at": expires_at.isoformat(), "days_left": days_left}
 
 
 class BrowserRunner(Protocol):
@@ -39,11 +74,16 @@ async def run_http_check(task: CheckTask) -> dict[str, Any]:
             response = await client.get(task.url)
         elapsed = int((time.perf_counter() - started) * 1000)
         check_status, error = classify_http_result(elapsed, response.status_code, response.text, expected)
+        details: dict[str, Any] = {"status_code": response.status_code}
+        # хост отвечает — заодно снимаем срок сертификата (blocking socket → отдельный поток)
+        ssl_info = ssl_details(await asyncio.to_thread(fetch_ssl_expiry, task.url))
+        if ssl_info:
+            details["ssl"] = ssl_info
         return {
             "status": check_status,
             "response_time_ms": elapsed,
             "error": error,
-            "details": {"status_code": response.status_code},
+            "details": details,
         }
     except Exception as exc:  # noqa: BLE001
         return {"status": "down", "response_time_ms": None, "error": str(exc), "details": {}}

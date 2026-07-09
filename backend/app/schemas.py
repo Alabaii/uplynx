@@ -217,6 +217,8 @@ class MonitorRead(BaseModel):
     confirmations: int = 1
     config: dict[str, Any]
     in_maintenance: bool = False
+    ssl_expires_at: datetime | None = None
+    ssl_days_left: int | None = None
 
 
 class CheckResultRead(BaseModel):
@@ -319,7 +321,7 @@ class CheckTask(BaseModel):
 class TelegramConnect(BaseModel):
     bot_token: str = Field(min_length=10, max_length=512)
     chat_id: str = Field(min_length=1, max_length=120)
-    alert_scopes: list[Literal["down", "degraded", "recovered"]] = ["down", "recovered"]
+    alert_scopes: list[Literal["down", "degraded", "recovered", "ssl"]] = ["down", "recovered"]
 
 
 class TelegramRead(BaseModel):

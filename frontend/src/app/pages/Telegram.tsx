@@ -12,6 +12,7 @@ const alertScopes = [
   { id: 'down', label: 'Down', description: 'Critical failures and timeouts' },
   { id: 'degraded', label: 'Degraded', description: 'Slow but not fully broken checks' },
   { id: 'recovered', label: 'Recovered', description: 'Follow-up signal when status returns to green' },
+  { id: 'ssl', label: 'SSL expiry', description: 'TLS certificate expires in 30/14/7/1 days' },
 ] as const;
 
 type AlertScope = (typeof alertScopes)[number]['id'];

@@ -47,6 +47,8 @@ export type Monitor = {
   enabled: boolean;
   confirmations?: number;
   in_maintenance?: boolean;
+  ssl_expires_at?: string | null;
+  ssl_days_left?: number | null;
   config: {
     expected?: {
       status?: number;

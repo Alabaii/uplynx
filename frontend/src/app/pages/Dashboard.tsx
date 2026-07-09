@@ -242,6 +242,18 @@ export default function Dashboard() {
                         <span className="rounded-lg bg-secondary px-3 py-1 text-xs font-semibold uppercase text-muted-foreground">
                           {monitor.type}
                         </span>
+                        {monitor.ssl_days_left !== null && monitor.ssl_days_left !== undefined && monitor.ssl_days_left <= 14 && (
+                          <span
+                            className={cn(
+                              'rounded-lg px-2.5 py-1 text-[11px] font-semibold uppercase',
+                              monitor.ssl_days_left <= 7
+                                ? 'bg-status-down/10 text-status-down'
+                                : 'bg-status-degraded/15 text-status-degraded'
+                            )}
+                          >
+                            SSL {monitor.ssl_days_left <= 0 ? 'expired' : `${monitor.ssl_days_left}d`}
+                          </span>
+                        )}
                       </div>
 
                       <p className="mt-2 truncate text-sm text-muted-foreground">{monitor.url}</p>
