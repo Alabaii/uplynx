@@ -26,28 +26,9 @@ import {
   type Plan,
 } from '../api';
 import { cn } from '../utils/cn';
+import { plural, useTexts } from '../i18n';
 
 type TabId = 'overview' | 'plans' | 'organizations';
-
-const tabs: { id: TabId; label: string }[] = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'plans', label: 'Plans' },
-  { id: 'organizations', label: 'Organizations' },
-];
-
-const intervalOptions = [
-  { value: 10, label: '10 seconds' },
-  { value: 30, label: '30 seconds' },
-  { value: 60, label: '1 minute' },
-  { value: 300, label: '5 minutes' },
-  { value: 900, label: '15 minutes' },
-];
-
-const retentionOptions = [
-  { value: 30, label: '30 days' },
-  { value: 90, label: '90 days' },
-  { value: 365, label: '1 year' },
-];
 
 const selectClasses =
   'h-9 w-full rounded-lg border border-input bg-input-background px-2 text-sm text-foreground transition-colors hover:border-input-border-hover focus:border-input-border-hover focus:outline-none focus:ring-2 focus:ring-ring/20';
@@ -65,6 +46,51 @@ function StatCard({ label, value, hint, alert }: { label: string; value: string;
 }
 
 function OverviewTab() {
+  const t = useTexts({
+    ru: {
+      loadError: 'Не удалось загрузить статистику платформы',
+      loading: 'Загрузка статистики платформы...',
+      noHeartbeat: 'нет heartbeat',
+      secondsAgo: (s: number) => `${s} с назад`,
+      subtitle: 'Актуальные показатели платформы по всем организациям.',
+      refresh: 'Обновить',
+      users: 'Пользователи',
+      organizations: 'Организации',
+      monitors: 'Мониторы',
+      monitorsHint: (enabled: number, browser: number) => `${enabled} включено · ${browser} браузерных`,
+      checks24h: 'Проверки (24 ч)',
+      openIncidents: 'Открытые инциденты',
+      schedulerHeartbeat: 'Heartbeat шедулера',
+      monitorsOverdue: (n: number) =>
+        `${n} ${plural(n, ['монитор просрочен', 'монитора просрочены', 'мониторов просрочено'])}`,
+      onSchedule: 'по расписанию',
+      queues: 'Очереди',
+      rabbitUnreachable: 'RabbitMQ недоступен — глубина очередей неизвестна.',
+      dlq: 'очередь недоставленных (DLQ)',
+      workQueue: 'рабочая очередь',
+    },
+    en: {
+      loadError: 'Unable to load platform stats',
+      loading: 'Loading platform stats...',
+      noHeartbeat: 'no heartbeat',
+      secondsAgo: (s: number) => `${s}s ago`,
+      subtitle: 'Live platform totals across every organization.',
+      refresh: 'Refresh',
+      users: 'Users',
+      organizations: 'Organizations',
+      monitors: 'Monitors',
+      monitorsHint: (enabled: number, browser: number) => `${enabled} enabled · ${browser} browser`,
+      checks24h: 'Checks (24h)',
+      openIncidents: 'Open incidents',
+      schedulerHeartbeat: 'Scheduler heartbeat',
+      monitorsOverdue: (n: number) => `${n} monitors overdue`,
+      onSchedule: 'on schedule',
+      queues: 'Queues',
+      rabbitUnreachable: 'RabbitMQ is unreachable — queue depths unavailable.',
+      dlq: 'dead-letter queue',
+      workQueue: 'work queue',
+    },
+  });
   const [data, setData] = useState<AdminOverview | null>(null);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -76,7 +102,7 @@ function OverviewTab() {
         setData(overview);
         setError('');
       })
-      .catch((err) => setError(err instanceof ApiError ? err.message : 'Unable to load platform stats'))
+      .catch((err) => setError(err instanceof ApiError ? err.message : t.loadError))
       .finally(() => setIsLoading(false));
   }, []);
 
@@ -88,36 +114,37 @@ function OverviewTab() {
     return <div className="rounded-lg bg-destructive/10 p-4 text-sm text-destructive">{error}</div>;
   }
   if (!data) {
-    return <div className="rounded-lg bg-secondary p-4 text-sm text-muted-foreground">Loading platform stats...</div>;
+    return <div className="rounded-lg bg-secondary p-4 text-sm text-muted-foreground">{t.loading}</div>;
   }
 
   const scheduler = data.scheduler;
-  const schedulerValue = scheduler.beat_age_seconds === null ? 'no heartbeat' : `${scheduler.beat_age_seconds}s ago`;
+  const schedulerValue =
+    scheduler.beat_age_seconds === null ? t.noHeartbeat : t.secondsAgo(scheduler.beat_age_seconds);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">Live platform totals across every organization.</p>
+        <p className="text-sm text-muted-foreground">{t.subtitle}</p>
         <Button variant="outline" size="sm" onClick={load} isLoading={isLoading}>
           <RefreshCw className="h-4 w-4" />
-          Refresh
+          {t.refresh}
         </Button>
       </div>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
-        <StatCard label="Users" value={String(data.users_total)} />
-        <StatCard label="Organizations" value={String(data.orgs_total)} />
+        <StatCard label={t.users} value={String(data.users_total)} />
+        <StatCard label={t.organizations} value={String(data.orgs_total)} />
         <StatCard
-          label="Monitors"
+          label={t.monitors}
           value={String(data.monitors_total)}
-          hint={`${data.monitors_enabled} enabled · ${data.monitors_browser} browser`}
+          hint={t.monitorsHint(data.monitors_enabled, data.monitors_browser)}
         />
-        <StatCard label="Checks (24h)" value={data.checks_24h.toLocaleString()} />
-        <StatCard label="Open incidents" value={String(data.incidents_open)} alert={data.incidents_open > 0} />
+        <StatCard label={t.checks24h} value={data.checks_24h.toLocaleString()} />
+        <StatCard label={t.openIncidents} value={String(data.incidents_open)} alert={data.incidents_open > 0} />
         <StatCard
-          label="Scheduler heartbeat"
+          label={t.schedulerHeartbeat}
           value={schedulerValue}
-          hint={scheduler.overdue_monitors > 0 ? `${scheduler.overdue_monitors} monitors overdue` : 'on schedule'}
+          hint={scheduler.overdue_monitors > 0 ? t.monitorsOverdue(scheduler.overdue_monitors) : t.onSchedule}
           alert={scheduler.stale}
         />
       </div>
@@ -126,14 +153,14 @@ function OverviewTab() {
         <CardHeader className="border-b border-border">
           <CardTitle className="flex items-center gap-2">
             <Gauge className="h-5 w-5 text-primary" />
-            Queues
+            {t.queues}
           </CardTitle>
         </CardHeader>
         <CardContent className="p-6">
           {data.queues === null ? (
             <div className="flex items-center gap-2 rounded-lg bg-destructive/10 p-4 text-sm text-destructive">
               <AlertTriangle className="h-4 w-4" />
-              RabbitMQ is unreachable — queue depths unavailable.
+              {t.rabbitUnreachable}
             </div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
@@ -150,7 +177,7 @@ function OverviewTab() {
                   >
                     <div>
                       <p className="text-sm font-semibold text-foreground">{queue.name}</p>
-                      <p className="text-xs text-placeholder">{isDead ? 'dead-letter queue' : 'work queue'}</p>
+                      <p className="text-xs text-placeholder">{isDead ? t.dlq : t.workQueue}</p>
                     </div>
                     <span
                       className={cn(
@@ -198,6 +225,62 @@ function formStateFromPlan(plan: Plan): PlanFormState {
 }
 
 function PlanCard({ plan, onSaved }: { plan: Plan; onSaved: (plan: Plan) => void }) {
+  const t = useTexts({
+    ru: {
+      intervalOptions: [
+        { value: 10, label: '10 секунд' },
+        { value: 30, label: '30 секунд' },
+        { value: 60, label: '1 минута' },
+        { value: 300, label: '5 минут' },
+        { value: 900, label: '15 минут' },
+      ],
+      retentionOptions: [
+        { value: 30, label: '30 дней' },
+        { value: 90, label: '90 дней' },
+        { value: 365, label: '1 год' },
+      ],
+      saved: 'Сохранено.',
+      saveError: 'Не удалось сохранить тариф',
+      priceLabel: 'Цена, ₽/мес',
+      discountLabel: 'Годовая скидка, %',
+      annualHint: (price: string) => `≈ ${price} ₽/мес при оплате за год`,
+      monitorsLabel: 'Мониторы',
+      browserMonitorsLabel: 'Браузерные мониторы',
+      minIntervalLabel: 'Мин. интервал',
+      browserMinIntervalLabel: 'Мин. интервал (браузерные)',
+      teamMembersLabel: 'Участники команды',
+      unlimited: 'Без ограничений',
+      retentionLabel: 'Хранение истории',
+      save: (name: string) => `Сохранить ${name}`,
+    },
+    en: {
+      intervalOptions: [
+        { value: 10, label: '10 seconds' },
+        { value: 30, label: '30 seconds' },
+        { value: 60, label: '1 minute' },
+        { value: 300, label: '5 minutes' },
+        { value: 900, label: '15 minutes' },
+      ],
+      retentionOptions: [
+        { value: 30, label: '30 days' },
+        { value: 90, label: '90 days' },
+        { value: 365, label: '1 year' },
+      ],
+      saved: 'Saved.',
+      saveError: 'Unable to save plan',
+      priceLabel: 'Price, ₽/month',
+      discountLabel: 'Annual discount, %',
+      annualHint: (price: string) => `≈ ₽${price}/month billed annually`,
+      monitorsLabel: 'Monitors',
+      browserMonitorsLabel: 'Browser monitors',
+      minIntervalLabel: 'Min interval',
+      browserMinIntervalLabel: 'Browser min interval',
+      teamMembersLabel: 'Team members',
+      unlimited: 'Unlimited',
+      retentionLabel: 'History retention',
+      save: (name: string) => `Save ${name}`,
+    },
+  });
   const [form, setForm] = useState<PlanFormState>(() => formStateFromPlan(plan));
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -234,9 +317,9 @@ function PlanCard({ plan, onSaved }: { plan: Plan; onSaved: (plan: Plan) => void
       });
       onSaved(updated);
       setForm(formStateFromPlan(updated));
-      setMessage('Saved.');
+      setMessage(t.saved);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unable to save plan');
+      setError(err instanceof ApiError ? err.message : t.saveError);
     } finally {
       setIsSaving(false);
     }
@@ -255,7 +338,7 @@ function PlanCard({ plan, onSaved }: { plan: Plan; onSaved: (plan: Plan) => void
       <CardContent className="space-y-4 p-6">
         <div className="grid grid-cols-2 gap-3">
           <Input
-            label="Price, $/month"
+            label={t.priceLabel}
             type="number"
             min="0"
             step="0.5"
@@ -263,7 +346,7 @@ function PlanCard({ plan, onSaved }: { plan: Plan; onSaved: (plan: Plan) => void
             onChange={(event) => set('price', event.target.value)}
           />
           <Input
-            label="Annual discount, %"
+            label={t.discountLabel}
             type="number"
             min="0"
             max="100"
@@ -272,19 +355,19 @@ function PlanCard({ plan, onSaved }: { plan: Plan; onSaved: (plan: Plan) => void
           />
         </div>
         {annualMonthly !== null && annualMonthly > 0 && (
-          <p className="text-xs text-muted-foreground">≈ ${annualMonthly.toFixed(2)}/month billed annually</p>
+          <p className="text-xs text-muted-foreground">{t.annualHint(annualMonthly.toFixed(2))}</p>
         )}
 
         <div className="grid grid-cols-2 gap-3">
           <Input
-            label="Monitors"
+            label={t.monitorsLabel}
             type="number"
             min="1"
             value={form.maxMonitors}
             onChange={(event) => set('maxMonitors', event.target.value)}
           />
           <Input
-            label="Browser monitors"
+            label={t.browserMonitorsLabel}
             type="number"
             min="0"
             value={form.maxBrowser}
@@ -294,13 +377,13 @@ function PlanCard({ plan, onSaved }: { plan: Plan; onSaved: (plan: Plan) => void
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="mb-1 block text-sm font-normal text-placeholder">Min interval</label>
+            <label className="mb-1 block text-sm font-normal text-placeholder">{t.minIntervalLabel}</label>
             <select
               className={selectClasses}
               value={form.minInterval}
               onChange={(event) => set('minInterval', Number(event.target.value))}
             >
-              {intervalOptions.map((option) => (
+              {t.intervalOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
@@ -308,13 +391,13 @@ function PlanCard({ plan, onSaved }: { plan: Plan; onSaved: (plan: Plan) => void
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-sm font-normal text-placeholder">Browser min interval</label>
+            <label className="mb-1 block text-sm font-normal text-placeholder">{t.browserMinIntervalLabel}</label>
             <select
               className={selectClasses}
               value={form.browserMinInterval}
               onChange={(event) => set('browserMinInterval', Number(event.target.value))}
             >
-              {intervalOptions
+              {t.intervalOptions
                 .filter((option) => option.value >= 60)
                 .map((option) => (
                   <option key={option.value} value={option.value}>
@@ -328,12 +411,12 @@ function PlanCard({ plan, onSaved }: { plan: Plan; onSaved: (plan: Plan) => void
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Input
-              label="Team members"
+              label={t.teamMembersLabel}
               type="number"
               min="1"
               value={form.members}
               disabled={form.unlimitedMembers}
-              placeholder={form.unlimitedMembers ? 'Unlimited' : ''}
+              placeholder={form.unlimitedMembers ? t.unlimited : ''}
               onChange={(event) => set('members', event.target.value)}
             />
             <label className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
@@ -342,17 +425,17 @@ function PlanCard({ plan, onSaved }: { plan: Plan; onSaved: (plan: Plan) => void
                 checked={form.unlimitedMembers}
                 onChange={(event) => set('unlimitedMembers', event.target.checked)}
               />
-              Unlimited
+              {t.unlimited}
             </label>
           </div>
           <div>
-            <label className="mb-1 block text-sm font-normal text-placeholder">History retention</label>
+            <label className="mb-1 block text-sm font-normal text-placeholder">{t.retentionLabel}</label>
             <select
               className={selectClasses}
               value={form.retention}
               onChange={(event) => set('retention', Number(event.target.value))}
             >
-              {retentionOptions.map((option) => (
+              {t.retentionOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
@@ -371,7 +454,7 @@ function PlanCard({ plan, onSaved }: { plan: Plan; onSaved: (plan: Plan) => void
 
         <Button onClick={handleSave} isLoading={isSaving} className="w-full">
           <Save className="h-4 w-4" />
-          Save {plan.name}
+          {t.save(plan.name)}
         </Button>
       </CardContent>
     </Card>
@@ -379,6 +462,18 @@ function PlanCard({ plan, onSaved }: { plan: Plan; onSaved: (plan: Plan) => void
 }
 
 function PlansTab() {
+  const t = useTexts({
+    ru: {
+      loadError: 'Не удалось загрузить тарифы',
+      loading: 'Загрузка тарифов...',
+      note: 'Изменения сразу применяются на странице тарифов. Действующие подписки сохраняют цену до продления; лимиты начнут применяться после запуска ограничений по тарифам.',
+    },
+    en: {
+      loadError: 'Unable to load plans',
+      loading: 'Loading plans...',
+      note: 'Changes apply to the pricing page immediately. Existing subscriptions keep their price until renewal; limits are enforced once plan gating ships.',
+    },
+  });
   const [plans, setPlans] = useState<Plan[]>([]);
   const [error, setError] = useState('');
 
@@ -393,7 +488,7 @@ function PlansTab() {
       })
       .catch((err) => {
         if (!ignore) {
-          setError(err instanceof ApiError ? err.message : 'Unable to load plans');
+          setError(err instanceof ApiError ? err.message : t.loadError);
         }
       });
     return () => {
@@ -405,15 +500,12 @@ function PlansTab() {
     return <div className="rounded-lg bg-destructive/10 p-4 text-sm text-destructive">{error}</div>;
   }
   if (plans.length === 0) {
-    return <div className="rounded-lg bg-secondary p-4 text-sm text-muted-foreground">Loading plans...</div>;
+    return <div className="rounded-lg bg-secondary p-4 text-sm text-muted-foreground">{t.loading}</div>;
   }
 
   return (
     <div className="space-y-6">
-      <p className="text-sm text-muted-foreground">
-        Changes apply to the pricing page immediately. Existing subscriptions keep their price until renewal;
-        limits are enforced once plan gating ships.
-      </p>
+      <p className="text-sm text-muted-foreground">{t.note}</p>
       <div className="grid gap-4 lg:grid-cols-3">
         {plans.map((plan) => (
           <PlanCard
@@ -430,6 +522,28 @@ function PlansTab() {
 }
 
 function OrganizationsTab() {
+  const t = useTexts({
+    ru: {
+      loadError: 'Не удалось загрузить организации',
+      changePlanError: 'Не удалось сменить тариф',
+      loading: 'Загрузка организаций...',
+      title: (n: number) => `Организации (${n})`,
+      members: (n: number) => `${n} ${plural(n, ['участник', 'участника', 'участников'])}`,
+      monitors: (n: number) => `${n} ${plural(n, ['монитор', 'монитора', 'мониторов'])}`,
+      since: (date: string) => `с ${date}`,
+      planAria: (name: string) => `Тариф организации ${name}`,
+    },
+    en: {
+      loadError: 'Unable to load organizations',
+      changePlanError: 'Unable to change plan',
+      loading: 'Loading organizations...',
+      title: (n: number) => `Organizations (${n})`,
+      members: (n: number) => `${n} members`,
+      monitors: (n: number) => `${n} monitors`,
+      since: (date: string) => `since ${date}`,
+      planAria: (name: string) => `Plan of ${name}`,
+    },
+  });
   const [orgs, setOrgs] = useState<AdminOrg[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [error, setError] = useState('');
@@ -447,7 +561,7 @@ function OrganizationsTab() {
       })
       .catch((err) => {
         if (!ignore) {
-          setError(err instanceof ApiError ? err.message : 'Unable to load organizations');
+          setError(err instanceof ApiError ? err.message : t.loadError);
         }
       });
     return () => {
@@ -463,7 +577,7 @@ function OrganizationsTab() {
     } catch (err) {
       setRowError((current) => ({
         ...current,
-        [org.id]: err instanceof ApiError ? err.message : 'Unable to change plan',
+        [org.id]: err instanceof ApiError ? err.message : t.changePlanError,
       }));
     }
   };
@@ -472,7 +586,7 @@ function OrganizationsTab() {
     return <div className="rounded-lg bg-destructive/10 p-4 text-sm text-destructive">{error}</div>;
   }
   if (orgs.length === 0) {
-    return <div className="rounded-lg bg-secondary p-4 text-sm text-muted-foreground">Loading organizations...</div>;
+    return <div className="rounded-lg bg-secondary p-4 text-sm text-muted-foreground">{t.loading}</div>;
   }
 
   return (
@@ -480,7 +594,7 @@ function OrganizationsTab() {
       <CardHeader className="border-b border-border">
         <CardTitle className="flex items-center gap-2">
           <Building2 className="h-5 w-5 text-primary" />
-          Organizations ({orgs.length})
+          {t.title(orgs.length)}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 p-6">
@@ -499,20 +613,20 @@ function OrganizationsTab() {
               <p className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-placeholder">
                 <span className="inline-flex items-center gap-1">
                   <Users className="h-3.5 w-3.5" />
-                  {org.members_count} members
+                  {t.members(org.members_count)}
                 </span>
                 <span className="inline-flex items-center gap-1">
                   <Activity className="h-3.5 w-3.5" />
-                  {org.monitors_count} monitors
+                  {t.monitors(org.monitors_count)}
                 </span>
-                <span>since {new Date(org.created_at).toLocaleDateString()}</span>
+                <span>{t.since(new Date(org.created_at).toLocaleDateString())}</span>
               </p>
               {rowError[org.id] && (
                 <p className="mt-1 text-xs font-semibold text-destructive">{rowError[org.id]}</p>
               )}
             </div>
             <select
-              aria-label={`Plan of ${org.name}`}
+              aria-label={t.planAria(org.name)}
               className={cn(selectClasses, 'w-auto shrink-0')}
               value={org.plan_slug}
               onChange={(event) => handlePlanChange(org, event.target.value)}
@@ -531,6 +645,33 @@ function OrganizationsTab() {
 }
 
 export default function Admin() {
+  const t = useTexts({
+    ru: {
+      tabs: [
+        { id: 'overview', label: 'Обзор' },
+        { id: 'plans', label: 'Тарифы' },
+        { id: 'organizations', label: 'Организации' },
+      ] as { id: TabId; label: string }[],
+      checkingAccess: 'Проверка доступа...',
+      adminsOnly: 'Эта страница доступна только администраторам платформы.',
+      badge: 'Админ платформы',
+      title: 'Администрирование сервиса',
+      description:
+        'Состояние всей платформы, тарифы и организации. Изменения здесь затрагивают все рабочие пространства.',
+    },
+    en: {
+      tabs: [
+        { id: 'overview', label: 'Overview' },
+        { id: 'plans', label: 'Plans' },
+        { id: 'organizations', label: 'Organizations' },
+      ] as { id: TabId; label: string }[],
+      checkingAccess: 'Checking access...',
+      adminsOnly: 'This page is available to platform administrators only.',
+      badge: 'Platform admin',
+      title: 'Service administration',
+      description: 'Platform-wide health, pricing plans, and organizations. Changes here affect every workspace.',
+    },
+  });
   const [tab, setTab] = useState<TabId>('overview');
   const [access, setAccess] = useState<'loading' | 'denied' | 'granted'>('loading');
 
@@ -553,12 +694,12 @@ export default function Admin() {
   }, []);
 
   if (access === 'loading') {
-    return <div className="rounded-lg bg-secondary p-4 text-sm text-muted-foreground">Checking access...</div>;
+    return <div className="rounded-lg bg-secondary p-4 text-sm text-muted-foreground">{t.checkingAccess}</div>;
   }
   if (access === 'denied') {
     return (
       <div className="rounded-lg bg-card p-6 text-sm text-muted-foreground shadow-card">
-        This page is available to platform administrators only.
+        {t.adminsOnly}
       </div>
     );
   }
@@ -568,16 +709,14 @@ export default function Admin() {
       <section className="rounded-lg bg-card p-6 shadow-card">
         <p className="flex items-center gap-2 text-sm font-semibold text-primary">
           <ShieldCheck className="h-4 w-4" />
-          Platform admin
+          {t.badge}
         </p>
-        <h1 className="mt-2 text-2xl font-semibold leading-8 text-foreground">Service administration</h1>
-        <p className="mt-3 max-w-3xl text-sm leading-5 text-muted-foreground">
-          Platform-wide health, pricing plans, and organizations. Changes here affect every workspace.
-        </p>
+        <h1 className="mt-2 text-2xl font-semibold leading-8 text-foreground">{t.title}</h1>
+        <p className="mt-3 max-w-3xl text-sm leading-5 text-muted-foreground">{t.description}</p>
       </section>
 
       <div className="flex gap-2">
-        {tabs.map((item) => (
+        {t.tabs.map((item) => (
           <button
             key={item.id}
             type="button"

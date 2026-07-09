@@ -23,25 +23,116 @@ import {
   type MonitorUptime,
 } from '../api';
 import { useMeta } from '../meta-context';
+import { plural, useTexts } from '../i18n';
 import { cn } from '../utils/cn';
 import { formatRelativeTime } from '../utils/time';
 
-const typeFilters: Array<{ value: 'all' | MonitorType; label: string }> = [
-  { value: 'all', label: 'All' },
-  { value: 'http', label: 'HTTP' },
-  { value: 'browser', label: 'Browser' },
-];
-
-const statusFilters: Array<{ value: 'all' | MonitorStatus; label: string }> = [
-  { value: 'all', label: 'Any state' },
-  { value: 'up', label: 'Healthy' },
-  { value: 'degraded', label: 'Degraded' },
-  { value: 'down', label: 'Down' },
-  { value: 'paused', label: 'Paused' },
-  { value: 'pending', label: 'Pending' },
-];
-
 export default function Dashboard() {
+  const t = useTexts({
+    ru: {
+      overview: 'Оперативная сводка',
+      heroTitle: 'Состояние парка мониторов',
+      heroText:
+        'Каждая карточка ниже отражает живое состояние из пайплайна проверок. Откройте сервис, чтобы посмотреть историю откликов, или перейдите сразу в конфиг, чтобы настроить, что именно мониторится.',
+      openConfig: 'Открыть конфиг',
+      newMonitor: 'Новый монитор',
+      fleetHealth: 'Здоровье парка',
+      noMonitorsYet: 'Мониторов пока нет',
+      avgUptimeHint: 'Средний аптайм за последние 24 часа',
+      downMonitors: 'Недоступные мониторы',
+      downHint: 'Требуют немедленных действий',
+      degraded: 'Деградация',
+      degradedHint: 'Медленные или нестабильные проверки',
+      paused: 'На паузе',
+      pausedHint: 'Временно исключены из проверок',
+      serviceRoster: 'Список сервисов',
+      monitorCount: (count: number, limit: number) =>
+        `${count} / ${limit} ${plural(limit, ['монитор', 'монитора', 'мониторов'])}`,
+      rosterSubtitle: 'Поиск и фильтрация отслеживаемых сервисов.',
+      searchPlaceholder: 'Поиск по имени или URL...',
+      filters: 'Фильтры',
+      filterAll: 'Все',
+      filterAnyState: 'Любой статус',
+      filterHealthy: 'Работает',
+      filterDown: 'Недоступен',
+      filterPending: 'Ожидание',
+      loadingMonitors: 'Загрузка мониторов...',
+      loadError: 'Не удалось загрузить мониторы',
+      emptyCreateFirst: 'Создайте первый монитор или загрузите конфиг, чтобы начать.',
+      noMatch: 'Нет мониторов, подходящих под фильтры',
+      noMatchHint: 'Попробуйте сбросить фильтр или изменить поисковый запрос.',
+      maintenance: 'Обслуживание',
+      ssl: (days: number) => (days <= 0 ? 'SSL истёк' : `SSL ${days} дн`),
+      statUptime: 'Аптайм 24 ч',
+      statLastCheck: 'Последняя проверка',
+      statResponse: 'Отклик',
+      statInterval: 'Интервал',
+      checksEnabled: 'Плановые проверки включены',
+      checksPaused: 'Проверки на паузе',
+      openService: 'Открыть сервис',
+      formatInterval: (seconds: number) => (seconds < 60 ? `${seconds} с` : `${Math.round(seconds / 60)} мин`),
+      formatResponse: (ms: number | null | undefined) => (typeof ms === 'number' ? `${ms} мс` : '—'),
+    },
+    en: {
+      overview: 'Operational overview',
+      heroTitle: 'Fleet status at a glance',
+      heroText:
+        'Every card below reflects the live state reported by the checks pipeline. Open a service to see its response history, or jump straight into the config to change what is monitored.',
+      openConfig: 'Open config',
+      newMonitor: 'New monitor',
+      fleetHealth: 'Fleet health',
+      noMonitorsYet: 'No monitors yet',
+      avgUptimeHint: 'Average uptime over the last 24h',
+      downMonitors: 'Down monitors',
+      downHint: 'Require immediate action',
+      degraded: 'Degraded',
+      degradedHint: 'Slow or unstable checks',
+      paused: 'Paused',
+      pausedHint: 'Temporarily excluded from checks',
+      serviceRoster: 'Service roster',
+      monitorCount: (count: number, limit: number) => `${count} / ${limit} monitors`,
+      rosterSubtitle: 'Search and filter the monitored services.',
+      searchPlaceholder: 'Search by name or URL...',
+      filters: 'Filters',
+      filterAll: 'All',
+      filterAnyState: 'Any state',
+      filterHealthy: 'Healthy',
+      filterDown: 'Down',
+      filterPending: 'Pending',
+      loadingMonitors: 'Loading monitors...',
+      loadError: 'Unable to load monitors',
+      emptyCreateFirst: 'Create your first monitor or upload a config to get started.',
+      noMatch: 'No monitors match these filters',
+      noMatchHint: 'Try resetting a filter or adjusting the search query.',
+      maintenance: 'Maintenance',
+      ssl: (days: number) => (days <= 0 ? 'SSL expired' : `SSL ${days}d`),
+      statUptime: 'Uptime 24h',
+      statLastCheck: 'Last check',
+      statResponse: 'Response',
+      statInterval: 'Interval',
+      checksEnabled: 'Scheduled checks enabled',
+      checksPaused: 'Checks paused',
+      openService: 'Open service',
+      formatInterval: (seconds: number) => (seconds < 60 ? `${seconds} s` : `${Math.round(seconds / 60)} min`),
+      formatResponse: (ms: number | null | undefined) => (typeof ms === 'number' ? `${ms} ms` : '—'),
+    },
+  });
+
+  const typeFilters: Array<{ value: 'all' | MonitorType; label: string }> = [
+    { value: 'all', label: t.filterAll },
+    { value: 'http', label: 'HTTP' },
+    { value: 'browser', label: 'Browser' },
+  ];
+
+  const statusFilters: Array<{ value: 'all' | MonitorStatus; label: string }> = [
+    { value: 'all', label: t.filterAnyState },
+    { value: 'up', label: t.filterHealthy },
+    { value: 'degraded', label: t.degraded },
+    { value: 'down', label: t.filterDown },
+    { value: 'paused', label: t.paused },
+    { value: 'pending', label: t.filterPending },
+  ];
+
   const navigate = useNavigate();
   const meta = useMeta();
   const monitorLimit = meta?.deployment_mode === 'team' ? meta.limits?.max_monitors ?? null : null;
@@ -66,7 +157,7 @@ export default function Dashboard() {
       })
       .catch((error) => {
         if (!ignore) {
-          setError(error instanceof Error ? error.message : 'Unable to load monitors');
+          setError(error instanceof Error ? error.message : t.loadError);
         }
       })
       .finally(() => {
@@ -117,12 +208,9 @@ export default function Dashboard() {
       <section className="overflow-hidden rounded-lg bg-card p-6 shadow-card">
         <div className="flex flex-col gap-8 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-3xl">
-            <p className="text-sm font-semibold text-primary">Operational overview</p>
-            <h1 className="mt-2 text-2xl font-semibold leading-8 text-foreground">Fleet status at a glance</h1>
-            <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              Every card below reflects the live state reported by the checks pipeline. Open a service to see its
-              response history, or jump straight into the config to change what is monitored.
-            </p>
+            <p className="text-sm font-semibold text-primary">{t.overview}</p>
+            <h1 className="mt-2 text-2xl font-semibold leading-8 text-foreground">{t.heroTitle}</h1>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">{t.heroText}</p>
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -132,7 +220,7 @@ export default function Dashboard() {
               className="inline-flex items-center gap-2 rounded-lg bg-secondary px-4 py-[11px] text-base font-medium leading-none text-primary transition-colors hover:bg-accent"
             >
               <Workflow className="h-4 w-4" />
-              Open config
+              {t.openConfig}
             </button>
             <button
               type="button"
@@ -140,7 +228,7 @@ export default function Dashboard() {
               className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-[11px] text-base font-medium leading-none text-primary-foreground transition-colors hover:bg-primary-hover"
             >
               <Plus className="h-4 w-4" />
-              New monitor
+              {t.newMonitor}
             </button>
           </div>
         </div>
@@ -148,14 +236,14 @@ export default function Dashboard() {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
-          title="Fleet health"
+          title={t.fleetHealth}
           value={summary.averageUptime === null ? '—' : `${summary.averageUptime}%`}
-          hint={monitors.length === 0 ? 'No monitors yet' : 'Average uptime over the last 24h'}
+          hint={monitors.length === 0 ? t.noMonitorsYet : t.avgUptimeHint}
           icon={Waves}
         />
-        <SummaryCard title="Down monitors" value={String(summary.down)} hint="Require immediate action" icon={Siren} />
-        <SummaryCard title="Degraded" value={String(summary.degraded)} hint="Slow or unstable checks" icon={AlertTriangle} />
-        <SummaryCard title="Paused" value={String(summary.paused)} hint="Temporarily excluded from checks" icon={Clock3} />
+        <SummaryCard title={t.downMonitors} value={String(summary.down)} hint={t.downHint} icon={Siren} />
+        <SummaryCard title={t.degraded} value={String(summary.degraded)} hint={t.degradedHint} icon={AlertTriangle} />
+        <SummaryCard title={t.paused} value={String(summary.paused)} hint={t.pausedHint} icon={Clock3} />
       </div>
 
       <div>
@@ -164,14 +252,14 @@ export default function Dashboard() {
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <CardTitle>Service roster</CardTitle>
+                  <CardTitle>{t.serviceRoster}</CardTitle>
                   {monitorLimit !== null && (
                     <span className="text-sm text-muted-foreground">
-                      {monitors.length} / {monitorLimit} monitors
+                      {t.monitorCount(monitors.length, monitorLimit)}
                     </span>
                   )}
                 </div>
-                <p className="mt-2 text-sm text-muted-foreground">Search and filter the monitored services.</p>
+                <p className="mt-2 text-sm text-muted-foreground">{t.rosterSubtitle}</p>
               </div>
 
               <div className="relative w-full xl:max-w-sm">
@@ -179,7 +267,7 @@ export default function Dashboard() {
                 <Input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search by name or URL..."
+                  placeholder={t.searchPlaceholder}
                   className="pl-9"
                 />
               </div>
@@ -188,7 +276,7 @@ export default function Dashboard() {
             <div className="flex flex-col gap-3">
               <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
                 <SlidersHorizontal className="h-3.5 w-3.5" />
-                Filters
+                {t.filters}
               </div>
               <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
                 <FilterGroup values={statusFilters} activeValue={statusFilter} onChange={setStatusFilter} />
@@ -200,24 +288,24 @@ export default function Dashboard() {
           <CardContent className="space-y-4 p-4 md:p-6">
             {loading ? (
               <div className="rounded-lg border border-dashed border-border bg-secondary p-12 text-center">
-                <p className="text-lg font-semibold text-foreground">Loading monitors...</p>
+                <p className="text-lg font-semibold text-foreground">{t.loadingMonitors}</p>
               </div>
             ) : error ? (
               <div className="rounded-lg bg-destructive/10 p-12 text-center">
-                <p className="text-lg font-semibold text-destructive">Unable to load monitors</p>
+                <p className="text-lg font-semibold text-destructive">{t.loadError}</p>
                 <p className="mt-2 text-sm text-destructive">{error}</p>
               </div>
             ) : filteredMonitors.length === 0 ? (
               <div className="rounded-lg border border-dashed border-border bg-secondary p-12 text-center">
                 {monitors.length === 0 ? (
                   <>
-                    <p className="text-lg font-semibold text-foreground">No monitors yet</p>
-                    <p className="mt-2 text-sm text-placeholder">Create your first monitor or upload a config to get started.</p>
+                    <p className="text-lg font-semibold text-foreground">{t.noMonitorsYet}</p>
+                    <p className="mt-2 text-sm text-placeholder">{t.emptyCreateFirst}</p>
                   </>
                 ) : (
                   <>
-                    <p className="text-lg font-semibold text-foreground">No monitors match these filters</p>
-                    <p className="mt-2 text-sm text-placeholder">Try resetting a filter or adjusting the search query.</p>
+                    <p className="text-lg font-semibold text-foreground">{t.noMatch}</p>
+                    <p className="mt-2 text-sm text-placeholder">{t.noMatchHint}</p>
                   </>
                 )}
               </div>
@@ -236,7 +324,7 @@ export default function Dashboard() {
                         <StatusBadge status={monitor.status} />
                         {monitor.in_maintenance && (
                           <span className="rounded-lg bg-secondary px-2.5 py-1 text-[11px] font-semibold uppercase text-muted-foreground">
-                            Maintenance
+                            {t.maintenance}
                           </span>
                         )}
                         <span className="rounded-lg bg-secondary px-3 py-1 text-xs font-semibold uppercase text-muted-foreground">
@@ -251,7 +339,7 @@ export default function Dashboard() {
                                 : 'bg-status-degraded/15 text-status-degraded'
                             )}
                           >
-                            SSL {monitor.ssl_days_left <= 0 ? 'expired' : `${monitor.ssl_days_left}d`}
+                            {t.ssl(monitor.ssl_days_left)}
                           </span>
                         )}
                       </div>
@@ -260,17 +348,17 @@ export default function Dashboard() {
                     </div>
 
                     <div className="grid min-w-[16rem] grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-2">
-                      <Stat label="Uptime 24h" value={formatUptime(uptimeById[monitor.id]?.uptime_pct)} />
-                      <Stat label="Last check" value={formatRelativeTime(uptimeById[monitor.id]?.last_check_at)} />
-                      <Stat label="Response" value={formatResponse(uptimeById[monitor.id]?.last_response_ms)} />
-                      <Stat label="Interval" value={formatInterval(monitor.interval)} />
+                      <Stat label={t.statUptime} value={formatUptime(uptimeById[monitor.id]?.uptime_pct)} />
+                      <Stat label={t.statLastCheck} value={formatRelativeTime(uptimeById[monitor.id]?.last_check_at)} />
+                      <Stat label={t.statResponse} value={t.formatResponse(uptimeById[monitor.id]?.last_response_ms)} />
+                      <Stat label={t.statInterval} value={t.formatInterval(monitor.interval)} />
                     </div>
                   </div>
 
                   <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
-                    <p className="text-sm text-muted-foreground">{monitor.enabled ? 'Scheduled checks enabled' : 'Checks paused'}</p>
+                    <p className="text-sm text-muted-foreground">{monitor.enabled ? t.checksEnabled : t.checksPaused}</p>
                     <span className="inline-flex items-center gap-1 text-sm font-semibold text-primary">
-                      Open service
+                      {t.openService}
                       <ChevronRight className="h-4 w-4" />
                     </span>
                   </div>
@@ -311,16 +399,8 @@ function SummaryCard({
   );
 }
 
-function formatInterval(seconds: number): string {
-  return seconds < 60 ? `${seconds} s` : `${Math.round(seconds / 60)} min`;
-}
-
 function formatUptime(uptimePct: number | null | undefined): string {
   return typeof uptimePct === 'number' ? `${uptimePct}%` : '—';
-}
-
-function formatResponse(responseMs: number | null | undefined): string {
-  return typeof responseMs === 'number' ? `${responseMs} ms` : '—';
 }
 
 function Stat({ label, value }: { label: string; value: string }) {

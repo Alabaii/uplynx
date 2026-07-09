@@ -14,6 +14,7 @@ import {
   type Monitor,
   type OrgRole,
 } from '../api';
+import { useTexts } from '../i18n';
 import { cn } from '../utils/cn';
 
 type WindowState = 'active' | 'scheduled' | 'finished';
@@ -22,12 +23,6 @@ const stateBadgeClasses: Record<WindowState, string> = {
   active: 'bg-accent text-primary',
   scheduled: 'bg-secondary text-muted-foreground',
   finished: 'bg-muted text-muted-foreground',
-};
-
-const stateLabels: Record<WindowState, string> = {
-  active: 'Active',
-  scheduled: 'Scheduled',
-  finished: 'Finished',
 };
 
 function windowState(window: MaintenanceWindow): WindowState {
@@ -43,6 +38,69 @@ function formatPeriod(window: MaintenanceWindow): string {
 }
 
 export default function Maintenance() {
+  const t = useTexts({
+    ru: {
+      stateLabels: {
+        active: 'Активно',
+        scheduled: 'Запланировано',
+        finished: 'Завершено',
+      } as Record<WindowState, string>,
+      loadError: 'Не удалось загрузить окна обслуживания',
+      createError: 'Не удалось создать окно обслуживания',
+      cancelError: 'Не удалось отменить окно обслуживания',
+      confirmTargetAll: 'всех мониторов',
+      confirmCancel: (target: string) => `Отменить окно обслуживания для ${target}?`,
+      plannedWork: 'Плановые работы',
+      title: 'Окна обслуживания',
+      description:
+        'Пока окно активно, проверки затронутых мониторов полностью приостановлены: без алертов, без инцидентов, без штрафа к аптайму. Проверки возобновляются сразу после окончания окна.',
+      activeNow: 'Активно сейчас',
+      scheduleMaintenance: 'Запланировать обслуживание',
+      monitorLabel: 'Монитор',
+      allMonitors: 'Все мониторы',
+      starts: 'Начало',
+      ends: 'Окончание',
+      noteLabel: 'Заметка (необязательно)',
+      notePlaceholder: 'Обновление базы данных',
+      scheduleWindow: 'Запланировать окно',
+      loading: 'Загрузка окон обслуживания...',
+      emptyTitle: 'Окон обслуживания нет',
+      emptyHint: 'Запланируйте окно перед плановыми работами, чтобы приостановить проверки и не получать алерты.',
+      scheduledBy: (email: string) => `Запланировано пользователем ${email}`,
+      cancel: 'Отменить',
+    },
+    en: {
+      stateLabels: {
+        active: 'Active',
+        scheduled: 'Scheduled',
+        finished: 'Finished',
+      } as Record<WindowState, string>,
+      loadError: 'Unable to load maintenance windows',
+      createError: 'Unable to create maintenance window',
+      cancelError: 'Unable to cancel the maintenance window',
+      confirmTargetAll: 'all monitors',
+      confirmCancel: (target: string) => `Cancel the maintenance window for ${target}?`,
+      plannedWork: 'Planned work',
+      title: 'Maintenance windows',
+      description:
+        'While a window is active, checks for the affected monitors are paused entirely: no alerts, no incidents, no uptime penalty. Checks resume right after the window ends.',
+      activeNow: 'Active now',
+      scheduleMaintenance: 'Schedule maintenance',
+      monitorLabel: 'Monitor',
+      allMonitors: 'All monitors',
+      starts: 'Starts',
+      ends: 'Ends',
+      noteLabel: 'Note (optional)',
+      notePlaceholder: 'Database upgrade',
+      scheduleWindow: 'Schedule window',
+      loading: 'Loading maintenance windows...',
+      emptyTitle: 'No maintenance windows',
+      emptyHint: 'Schedule one before planned work to pause checks and keep alerts quiet.',
+      scheduledBy: (email: string) => `Scheduled by ${email}`,
+      cancel: 'Cancel',
+    },
+  });
+
   const [windows, setWindows] = useState<MaintenanceWindow[]>([]);
   const [monitors, setMonitors] = useState<Monitor[]>([]);
   const [myRole, setMyRole] = useState<OrgRole>('viewer');
@@ -65,7 +123,7 @@ export default function Maintenance() {
         setError('');
       })
       .catch((error) => {
-        setError(error instanceof Error ? error.message : 'Unable to load maintenance windows');
+        setError(error instanceof Error ? error.message : t.loadError);
       })
       .finally(() => {
         setLoading(false);
@@ -115,16 +173,16 @@ export default function Maintenance() {
       setFormNote('');
       load();
     } catch (error) {
-      setFormError(error instanceof ApiError ? error.message : 'Unable to create maintenance window');
+      setFormError(error instanceof ApiError ? error.message : t.createError);
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleCancel = async (window: MaintenanceWindow) => {
-    const target = window.monitor_name ?? 'all monitors';
+    const target = window.monitor_name ?? t.confirmTargetAll;
 
-    if (!globalThis.confirm(`Cancel the maintenance window for ${target}?`)) {
+    if (!globalThis.confirm(t.confirmCancel(target))) {
       return;
     }
 
@@ -134,7 +192,7 @@ export default function Maintenance() {
       await deleteMaintenance(window.id);
       setWindows((current) => current.filter((item) => item.id !== window.id));
     } catch (error) {
-      setError(error instanceof ApiError ? error.message : 'Unable to cancel the maintenance window');
+      setError(error instanceof ApiError ? error.message : t.cancelError);
     }
   };
 
@@ -143,11 +201,10 @@ export default function Maintenance() {
       <section className="overflow-hidden rounded-lg bg-card p-6 shadow-card">
         <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-3xl">
-            <p className="text-sm font-semibold text-primary">Planned work</p>
-            <h1 className="mt-2 text-2xl font-semibold leading-8 text-foreground">Maintenance windows</h1>
+            <p className="text-sm font-semibold text-primary">{t.plannedWork}</p>
+            <h1 className="mt-2 text-2xl font-semibold leading-8 text-foreground">{t.title}</h1>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              While a window is active, checks for the affected monitors are paused entirely: no alerts, no
-              incidents, no uptime penalty. Checks resume right after the window ends.
+              {t.description}
             </p>
           </div>
 
@@ -156,7 +213,7 @@ export default function Maintenance() {
               <Wrench className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-xs text-placeholder">Active now</p>
+              <p className="text-xs text-placeholder">{t.activeNow}</p>
               <p className="text-2xl font-semibold leading-7 text-foreground">{activeCount}</p>
             </div>
           </div>
@@ -170,7 +227,7 @@ export default function Maintenance() {
           <CardHeader className="border-b border-border">
             <CardTitle className="flex items-center gap-2">
               <CalendarPlus className="h-5 w-5 text-primary" />
-              Schedule maintenance
+              {t.scheduleMaintenance}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 p-6">
@@ -179,7 +236,7 @@ export default function Maintenance() {
             <form onSubmit={handleCreate} className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div>
                 <label htmlFor="maintenance-monitor" className="mb-1 block text-sm font-normal text-placeholder">
-                  Monitor
+                  {t.monitorLabel}
                 </label>
                 <select
                   id="maintenance-monitor"
@@ -187,7 +244,7 @@ export default function Maintenance() {
                   onChange={(event) => setFormMonitor(event.target.value)}
                   className="h-11 w-full rounded-lg border border-input bg-input-background px-3 text-base text-foreground transition-colors hover:border-input-border-hover focus:border-input-border-hover focus:outline-none focus:ring-2 focus:ring-ring/20"
                 >
-                  <option value="">All monitors</option>
+                  <option value="">{t.allMonitors}</option>
                   {monitors.map((monitor) => (
                     <option key={monitor.id} value={monitor.id}>
                       {monitor.name}
@@ -196,30 +253,30 @@ export default function Maintenance() {
                 </select>
               </div>
               <Input
-                label="Starts"
+                label={t.starts}
                 type="datetime-local"
                 value={formStart}
                 onChange={(event) => setFormStart(event.target.value)}
                 required
               />
               <Input
-                label="Ends"
+                label={t.ends}
                 type="datetime-local"
                 value={formEnd}
                 onChange={(event) => setFormEnd(event.target.value)}
                 required
               />
               <Input
-                label="Note (optional)"
+                label={t.noteLabel}
                 value={formNote}
                 onChange={(event) => setFormNote(event.target.value)}
-                placeholder="Database upgrade"
+                placeholder={t.notePlaceholder}
                 maxLength={300}
               />
               <div className="md:col-span-2 xl:col-span-4">
                 <Button type="submit" isLoading={isSubmitting}>
                   <CalendarPlus className="h-4 w-4" />
-                  Schedule window
+                  {t.scheduleWindow}
                 </Button>
               </div>
             </form>
@@ -231,19 +288,19 @@ export default function Maintenance() {
         <CardHeader className="border-b border-border">
           <CardTitle className="flex items-center gap-2">
             <Wrench className="h-5 w-5 text-primary" />
-            Maintenance windows
+            {t.title}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 p-4 md:p-6">
           {loading ? (
             <div className="rounded-lg border border-dashed border-border bg-secondary p-12 text-center">
-              <p className="text-lg font-semibold text-foreground">Loading maintenance windows...</p>
+              <p className="text-lg font-semibold text-foreground">{t.loading}</p>
             </div>
           ) : windows.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border bg-secondary p-12 text-center">
-              <p className="text-lg font-semibold text-foreground">No maintenance windows</p>
+              <p className="text-lg font-semibold text-foreground">{t.emptyTitle}</p>
               <p className="mt-2 text-sm text-placeholder">
-                Schedule one before planned work to pause checks and keep alerts quiet.
+                {t.emptyHint}
               </p>
             </div>
           ) : (
@@ -261,16 +318,16 @@ export default function Maintenance() {
                             stateBadgeClasses[state]
                           )}
                         >
-                          {stateLabels[state]}
+                          {t.stateLabels[state]}
                         </span>
                         <p className="text-sm font-semibold text-foreground">
-                          {window.monitor_name ?? 'All monitors'}
+                          {window.monitor_name ?? t.allMonitors}
                         </p>
                       </div>
                       <p className="text-sm text-muted-foreground">{formatPeriod(window)}</p>
                       {window.note && <p className="text-xs text-placeholder">{window.note}</p>}
                       {window.created_by_email && (
-                        <p className="text-xs text-placeholder">Scheduled by {window.created_by_email}</p>
+                        <p className="text-xs text-placeholder">{t.scheduledBy(window.created_by_email)}</p>
                       )}
                     </div>
 
@@ -282,7 +339,7 @@ export default function Maintenance() {
                         onClick={() => handleCancel(window)}
                       >
                         <Trash2 className="h-4 w-4" />
-                        Cancel
+                        {t.cancel}
                       </Button>
                     )}
                   </div>

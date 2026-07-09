@@ -4,18 +4,54 @@ import { Siren } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { StatusBadge } from '../components/StatusBadge';
 import { listIncidents, type Incident, type IncidentStatus } from '../api';
+import { useTexts } from '../i18n';
 import { cn } from '../utils/cn';
 import { formatDuration, formatRelativeTime } from '../utils/time';
 
 const ranges = ['24h', '7d', '30d'] as const;
 
-const statusFilters: Array<{ value: 'all' | IncidentStatus; label: string }> = [
-  { value: 'all', label: 'All' },
-  { value: 'open', label: 'Open' },
-  { value: 'resolved', label: 'Resolved' },
-];
-
 export default function Incidents() {
+  const t = useTexts({
+    ru: {
+      loadError: 'Не удалось загрузить инциденты',
+      filterAll: 'Все',
+      filterOpen: 'Открытые',
+      filterResolved: 'Решённые',
+      rangeLabels: { '24h': '24 ч', '7d': '7 дн', '30d': '30 дн' } as Record<(typeof ranges)[number], string>,
+      timeline: 'Хроника надёжности',
+      title: 'История инцидентов',
+      description:
+        'Каждый период, когда сервис выпадал из работоспособного состояния: инцидент открывается автоматически при падении или деградации и решается после восстановления.',
+      currentlyOpen: 'Сейчас открыто',
+      incidents: 'Инциденты',
+      loading: 'Загрузка инцидентов...',
+      emptyTitle: 'Нет инцидентов за этот период',
+      emptyHint: 'Сервисы работали стабильно, либо ничего не подошло под выбранные фильтры.',
+    },
+    en: {
+      loadError: 'Unable to load incidents',
+      filterAll: 'All',
+      filterOpen: 'Open',
+      filterResolved: 'Resolved',
+      rangeLabels: { '24h': '24h', '7d': '7d', '30d': '30d' } as Record<(typeof ranges)[number], string>,
+      timeline: 'Reliability timeline',
+      title: 'Incident history',
+      description:
+        'Every period a service dropped out of the healthy state, opened automatically when it went down or degraded and resolved when it recovered.',
+      currentlyOpen: 'Currently open',
+      incidents: 'Incidents',
+      loading: 'Loading incidents...',
+      emptyTitle: 'No incidents in this range',
+      emptyHint: 'Services stayed healthy, or nothing matched the selected filters.',
+    },
+  });
+
+  const statusFilters: Array<{ value: 'all' | IncidentStatus; label: string }> = [
+    { value: 'all', label: t.filterAll },
+    { value: 'open', label: t.filterOpen },
+    { value: 'resolved', label: t.filterResolved },
+  ];
+
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [statusFilter, setStatusFilter] = useState<'all' | IncidentStatus>('all');
   const [range, setRange] = useState<(typeof ranges)[number]>('7d');
@@ -36,7 +72,7 @@ export default function Incidents() {
       })
       .catch((error) => {
         if (!ignore) {
-          setError(error instanceof Error ? error.message : 'Unable to load incidents');
+          setError(error instanceof Error ? error.message : t.loadError);
         }
       })
       .finally(() => {
@@ -57,11 +93,10 @@ export default function Incidents() {
       <section className="overflow-hidden rounded-lg bg-card p-6 shadow-card">
         <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-3xl">
-            <p className="text-sm font-semibold text-primary">Reliability timeline</p>
-            <h1 className="mt-2 text-2xl font-semibold leading-8 text-foreground">Incident history</h1>
+            <p className="text-sm font-semibold text-primary">{t.timeline}</p>
+            <h1 className="mt-2 text-2xl font-semibold leading-8 text-foreground">{t.title}</h1>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              Every period a service dropped out of the healthy state, opened automatically when it went down or
-              degraded and resolved when it recovered.
+              {t.description}
             </p>
           </div>
 
@@ -70,7 +105,7 @@ export default function Incidents() {
               <Siren className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-xs text-placeholder">Currently open</p>
+              <p className="text-xs text-placeholder">{t.currentlyOpen}</p>
               <p className="text-2xl font-semibold leading-7 text-foreground">{openCount}</p>
             </div>
           </div>
@@ -84,13 +119,13 @@ export default function Incidents() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <CardTitle className="flex items-center gap-2">
               <Siren className="h-5 w-5 text-primary" />
-              Incidents
+              {t.incidents}
             </CardTitle>
 
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <FilterGroup values={statusFilters} activeValue={statusFilter} onChange={setStatusFilter} />
               <FilterGroup
-                values={ranges.map((item) => ({ value: item, label: item }))}
+                values={ranges.map((item) => ({ value: item, label: t.rangeLabels[item] }))}
                 activeValue={range}
                 onChange={setRange}
               />
@@ -101,13 +136,13 @@ export default function Incidents() {
         <CardContent className="space-y-3 p-4 md:p-6">
           {loading ? (
             <div className="rounded-lg border border-dashed border-border bg-secondary p-12 text-center">
-              <p className="text-lg font-semibold text-foreground">Loading incidents...</p>
+              <p className="text-lg font-semibold text-foreground">{t.loading}</p>
             </div>
           ) : incidents.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border bg-secondary p-12 text-center">
-              <p className="text-lg font-semibold text-foreground">No incidents in this range</p>
+              <p className="text-lg font-semibold text-foreground">{t.emptyTitle}</p>
               <p className="mt-2 text-sm text-placeholder">
-                Services stayed healthy, or nothing matched the selected filters.
+                {t.emptyHint}
               </p>
             </div>
           ) : (
@@ -120,6 +155,19 @@ export default function Incidents() {
 }
 
 function IncidentRow({ incident }: { incident: Incident }) {
+  const t = useTexts({
+    ru: {
+      started: (when: string) => `Началось ${when}`,
+      ongoing: 'Продолжается',
+      duration: 'Длительность',
+    },
+    en: {
+      started: (when: string) => `Started ${when}`,
+      ongoing: 'Ongoing',
+      duration: 'Duration',
+    },
+  });
+
   return (
     <div className="rounded-lg border border-border p-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -133,7 +181,7 @@ function IncidentRow({ incident }: { incident: Incident }) {
               {incident.monitor_name}
             </Link>
           </div>
-          <p className="text-sm text-muted-foreground">Started {formatRelativeTime(incident.started_at)}</p>
+          <p className="text-sm text-muted-foreground">{t.started(formatRelativeTime(incident.started_at))}</p>
           {incident.trigger_error && (
             <p className="truncate text-xs text-placeholder">{incident.trigger_error}</p>
           )}
@@ -142,11 +190,11 @@ function IncidentRow({ incident }: { incident: Incident }) {
         <div className="shrink-0">
           {incident.status === 'open' ? (
             <span className="inline-flex items-center rounded-lg bg-status-down/10 px-2.5 py-1 text-xs font-semibold text-status-down">
-              Ongoing
+              {t.ongoing}
             </span>
           ) : (
             <div className="rounded-lg border border-border px-4 py-2 text-right">
-              <p className="text-[11px] font-semibold text-placeholder">Duration</p>
+              <p className="text-[11px] font-semibold text-placeholder">{t.duration}</p>
               <p className="mt-0.5 text-sm font-semibold text-foreground">
                 {formatDuration(incident.duration_seconds)}
               </p>

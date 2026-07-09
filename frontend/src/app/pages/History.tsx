@@ -5,11 +5,54 @@ import { Button } from '../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { StatusBadge } from '../components/StatusBadge';
 import { ApiError, getHistory, getMonitor, type CheckResult, type Monitor, type MonitorStatus } from '../api';
+import { useTexts } from '../i18n';
 import { cn } from '../utils/cn';
 
 const ranges = ['1h', '24h', '7d', '30d'] as const;
 
 export default function History() {
+  const t = useTexts({
+    ru: {
+      loadError: 'Не удалось загрузить историю',
+      loading: 'Загрузка истории...',
+      monitorHistory: 'История монитора',
+      rangeLabels: { '1h': '1 ч', '24h': '24 ч', '7d': '7 дн', '30d': '30 дн' } as Record<(typeof ranges)[number], string>,
+      checkLog: 'Журнал проверок',
+      currentRange: (range: string) => `Текущий диапазон: ${range}. Фильтруйте последние результаты по состоянию.`,
+      statusLabels: { all: 'Все', up: 'работает', degraded: 'деградация', down: 'недоступен' } as Record<'all' | 'up' | 'degraded' | 'down', string>,
+      noChecks: 'Нет проверок за этот период.',
+      pendingHint: 'Монитор ожидает первую запланированную проверку.',
+      widenHint: 'Попробуйте расширить диапазон или сбросить фильтр статуса.',
+      checkOk: 'Проверка выполнена успешно.',
+      failedAtStep: (index: number, action: string) => `Ошибка на шаге ${index}: ${action}`,
+      response: 'Ответ',
+      responseMs: (ms: number) => `${ms} мс`,
+      noResponse: 'Нет ответа',
+      exportTitle: 'Экспорт истории',
+      exportDescription: 'Скачайте отфильтрованные проверки в файле JSON для офлайн-анализа.',
+      exportButton: 'Экспорт JSON',
+    },
+    en: {
+      loadError: 'Unable to load history',
+      loading: 'Loading history...',
+      monitorHistory: 'Monitor history',
+      rangeLabels: { '1h': '1h', '24h': '24h', '7d': '7d', '30d': '30d' } as Record<(typeof ranges)[number], string>,
+      checkLog: 'Check log',
+      currentRange: (range: string) => `Current range: ${range}. Filter recent results by state.`,
+      statusLabels: { all: 'All', up: 'up', degraded: 'degraded', down: 'down' } as Record<'all' | 'up' | 'degraded' | 'down', string>,
+      noChecks: 'No checks in this range.',
+      pendingHint: 'This monitor is pending its first scheduled check.',
+      widenHint: 'Try a wider time range or reset the status filter.',
+      checkOk: 'Check completed successfully.',
+      failedAtStep: (index: number, action: string) => `Failed at step ${index}: ${action}`,
+      response: 'Response',
+      responseMs: (ms: number) => `${ms} ms`,
+      noResponse: 'No response',
+      exportTitle: 'Export history',
+      exportDescription: 'Download the currently filtered checks as a JSON file for offline analysis.',
+      exportButton: 'Export JSON',
+    },
+  });
   const { id = '' } = useParams();
   const [monitor, setMonitor] = useState<Monitor | null>(null);
   const [checks, setChecks] = useState<CheckResult[]>([]);
@@ -37,7 +80,7 @@ export default function History() {
           if (error instanceof ApiError && error.status === 404) {
             setNotFound(true);
           } else {
-            setError(error instanceof Error ? error.message : 'Unable to load history');
+            setError(error instanceof Error ? error.message : t.loadError);
           }
         }
       })
@@ -74,7 +117,7 @@ export default function History() {
   if (loading && !monitor) {
     return (
       <div className="rounded-lg border border-dashed border-border bg-secondary p-12 text-center">
-        <p className="text-lg font-semibold text-foreground">Loading history...</p>
+        <p className="text-lg font-semibold text-foreground">{t.loading}</p>
       </div>
     );
   }
@@ -82,7 +125,7 @@ export default function History() {
   if (error && !monitor) {
     return (
       <div className="rounded-lg bg-destructive/10 p-12 text-center">
-        <p className="text-lg font-semibold text-destructive">Unable to load history</p>
+        <p className="text-lg font-semibold text-destructive">{t.loadError}</p>
         <p className="mt-2 text-sm text-destructive">{error}</p>
       </div>
     );
@@ -100,7 +143,7 @@ export default function History() {
             <ArrowLeft className="h-5 w-5" />
           </Link>
           <div>
-            <p className="text-sm font-semibold text-primary">Monitor history</p>
+            <p className="text-sm font-semibold text-primary">{t.monitorHistory}</p>
             <h1 className="text-2xl font-semibold leading-8 text-foreground">{monitor.name}</h1>
           </div>
         </div>
@@ -118,7 +161,7 @@ export default function History() {
                   : 'bg-secondary text-foreground hover:text-primary'
               )}
             >
-              {item}
+              {t.rangeLabels[item]}
             </button>
           ))}
         </div>
@@ -134,9 +177,9 @@ export default function History() {
             <div>
               <CardTitle className="flex items-center gap-2">
                 <ScrollText className="h-5 w-5 text-primary" />
-                Check log
+                {t.checkLog}
               </CardTitle>
-              <p className="mt-2 text-sm text-muted-foreground">Current range: {range}. Filter recent results by state.</p>
+              <p className="mt-2 text-sm text-muted-foreground">{t.currentRange(t.rangeLabels[range])}</p>
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -152,7 +195,7 @@ export default function History() {
                       : 'bg-secondary text-foreground hover:text-primary'
                   )}
                 >
-                  {item === 'all' ? 'All' : item}
+                  {t.statusLabels[item]}
                 </button>
               ))}
             </div>
@@ -162,11 +205,9 @@ export default function History() {
         <CardContent className="space-y-4 p-4 md:p-6">
           {filteredChecks.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border bg-secondary p-10 text-center text-sm text-placeholder">
-              <p className="font-semibold text-muted-foreground">No checks in this range.</p>
+              <p className="font-semibold text-muted-foreground">{t.noChecks}</p>
               <p className="mt-2">
-                {monitor.status === 'pending'
-                  ? 'This monitor is pending its first scheduled check.'
-                  : 'Try a wider time range or reset the status filter.'}
+                {monitor.status === 'pending' ? t.pendingHint : t.widenHint}
               </p>
             </div>
           ) : (
@@ -180,10 +221,10 @@ export default function History() {
                     </div>
 
                     <div className="rounded-lg bg-secondary p-4 text-sm leading-5 text-muted-foreground">
-                      {check.error ? <p className="font-medium text-destructive">{check.error}</p> : <p>Check completed successfully.</p>}
+                      {check.error ? <p className="font-medium text-destructive">{check.error}</p> : <p>{t.checkOk}</p>}
                       {check.details.failed_step && (
                         <p className="mt-2 text-xs text-muted-foreground">
-                          Failed at step {check.details.failed_step.index}: {check.details.failed_step.action}{' '}
+                          {t.failedAtStep(check.details.failed_step.index, check.details.failed_step.action)}{' '}
                           {check.details.failed_step.selector ?? check.details.failed_step.url ?? check.details.failed_step.contains ?? ''}
                         </p>
                       )}
@@ -203,9 +244,9 @@ export default function History() {
                   </div>
 
                   <div className="rounded-lg border border-border px-4 py-3 text-right">
-                    <p className="text-[11px] font-semibold text-placeholder">Response</p>
+                    <p className="text-[11px] font-semibold text-placeholder">{t.response}</p>
                     <p className="mt-1 text-lg font-semibold text-foreground">
-                      {check.response_time_ms !== null ? `${check.response_time_ms} ms` : 'No response'}
+                      {check.response_time_ms !== null ? t.responseMs(check.response_time_ms) : t.noResponse}
                     </p>
                   </div>
                 </div>
@@ -218,14 +259,14 @@ export default function History() {
       <Card>
         <CardContent className="flex flex-col gap-4 p-6 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-sm font-semibold text-foreground">Export history</p>
+            <p className="text-sm font-semibold text-foreground">{t.exportTitle}</p>
             <p className="mt-2 text-sm leading-5 text-muted-foreground">
-              Download the currently filtered checks as a JSON file for offline analysis.
+              {t.exportDescription}
             </p>
           </div>
           <Button variant="outline" onClick={handleExport} disabled={filteredChecks.length === 0}>
             <FileClock className="h-4 w-4" />
-            Export JSON
+            {t.exportButton}
           </Button>
         </CardContent>
       </Card>

@@ -25,6 +25,7 @@ import {
   type Monitor,
 } from '../api';
 import { cn } from '../utils/cn';
+import { plural, useTexts } from '../i18n';
 import { formatDuration, formatRelativeTime } from '../utils/time';
 import {
   Area,
@@ -39,6 +40,116 @@ import {
 const ranges = ['1h', '24h', '7d', '30d'] as const;
 
 export default function MonitorDetails() {
+  const t = useTexts({
+    ru: {
+      loadErrorFallback: 'Не удалось загрузить монитор',
+      queueErrorFallback: 'Не удалось поставить проверку в очередь',
+      loadingMonitor: 'Загрузка монитора...',
+      loadErrorTitle: 'Не удалось загрузить монитор',
+      checkQueued: 'Проверка в очереди',
+      checkNow: 'Проверить сейчас',
+      viewHistory: 'Открыть историю',
+      metricStatus: 'Статус',
+      metricStatusHint: 'Текущее состояние монитора',
+      metricUptime: 'Аптайм',
+      metricUptimeHint: (range: string) => `Доля успешных проверок за последние ${range}`,
+      metricAvgResponse: 'Среднее время ответа',
+      noData: 'Нет данных',
+      metricAvgResponseHint: (range: string) => `По проверкам за последние ${range}`,
+      metricChecks: 'Проверки',
+      metricChecksHint: (range: string) => `Выполнено за последние ${range}`,
+      metricInterval: 'Интервал',
+      metricIntervalHint: 'Периодичность планировщика',
+      unitSeconds: 'с',
+      unitMinutes: 'мин',
+      unitMs: 'мс',
+      rangeLabel: (range: (typeof ranges)[number]) =>
+        ({ '1h': '1 ч', '24h': '24 ч', '7d': '7 дн', '30d': '30 дн' })[range],
+      chartTitle: 'Динамика времени ответа',
+      emptyChartTitle: 'В этом диапазоне пока нет проверок.',
+      emptyChartPending: 'Монитор ожидает первую запланированную проверку.',
+      emptyChartWiden: 'Попробуйте более широкий диапазон, чтобы увидеть более ранние результаты.',
+      configSummary: 'Сводка настроек',
+      httpExpectations: 'Ожидания HTTP',
+      expectedStatus: 'Статус',
+      expectedBodyContains: 'Тело содержит',
+      expectedResponseTime: (ms: number) => `Порог времени ответа: ${ms} мс`,
+      antiFlapping: 'Защита от дребезга',
+      confirmations: (n: number) =>
+        `Подтверждения: ${n} ${plural(n, ['последовательная проверка', 'последовательные проверки', 'последовательных проверок'])} до смены статуса`,
+      reAlerts: 'Повторные оповещения',
+      reAlertsText: (min: number) => `Повторять оповещения каждые ${min} мин, пока монитор недоступен`,
+      browserScenario: 'Браузерный сценарий',
+      sslCertificate: 'SSL-сертификат',
+      sslExpired: 'Истёк',
+      sslExpiresIn: (days: number) => `Истекает через ${days} ${plural(days, ['день', 'дня', 'дней'])}`,
+      lastCheck: 'Последняя проверка',
+      responseTime: (ms: number) => `Время ответа: ${ms} мс`,
+      noResponseTime: 'Время ответа не зафиксировано',
+      noChecksYet: 'Проверок пока не было.',
+      incidents: 'Инциденты',
+      noIncidents: 'Инцидентов не зафиксировано.',
+      incidentStarted: (relative: string) => `Начался ${relative}`,
+      ongoing: 'Продолжается',
+      recentChecks: 'Последние проверки',
+      noChecksInRange: 'В этом диапазоне нет проверок. Новые результаты появятся после запуска планировщика.',
+      noResponse: 'Нет ответа',
+      failedAtStep: (index: number) => `Ошибка на шаге ${index}:`,
+    },
+    en: {
+      loadErrorFallback: 'Unable to load monitor',
+      queueErrorFallback: 'Unable to queue check',
+      loadingMonitor: 'Loading monitor...',
+      loadErrorTitle: 'Unable to load monitor',
+      checkQueued: 'Check queued',
+      checkNow: 'Check now',
+      viewHistory: 'View history',
+      metricStatus: 'Status',
+      metricStatusHint: 'Current monitor state',
+      metricUptime: 'Uptime',
+      metricUptimeHint: (range: string) => `Share of successful checks in the last ${range}`,
+      metricAvgResponse: 'Average response',
+      noData: 'No data',
+      metricAvgResponseHint: (range: string) => `From checks in the last ${range}`,
+      metricChecks: 'Checks',
+      metricChecksHint: (range: string) => `Completed in the last ${range}`,
+      metricInterval: 'Interval',
+      metricIntervalHint: 'Scheduler cadence',
+      unitSeconds: 's',
+      unitMinutes: 'min',
+      unitMs: 'ms',
+      rangeLabel: (range: (typeof ranges)[number]) => range as string,
+      chartTitle: 'Response pattern',
+      emptyChartTitle: 'No checks in this range yet.',
+      emptyChartPending: 'This monitor is pending its first scheduled check.',
+      emptyChartWiden: 'Try a wider time range to see earlier results.',
+      configSummary: 'Config summary',
+      httpExpectations: 'HTTP expectations',
+      expectedStatus: 'Status',
+      expectedBodyContains: 'Body contains',
+      expectedResponseTime: (ms: number) => `Response time threshold: ${ms} ms`,
+      antiFlapping: 'Anti-flapping',
+      confirmations: (n: number) => `Confirmations: ${n} consecutive checks before a status change`,
+      reAlerts: 'Re-alerts',
+      reAlertsText: (min: number) => `Repeat alerts every ${min} min while the monitor is down`,
+      browserScenario: 'Browser scenario',
+      sslCertificate: 'SSL certificate',
+      sslExpired: 'Expired',
+      sslExpiresIn: (days: number) => `Expires in ${days} days`,
+      lastCheck: 'Last check',
+      responseTime: (ms: number) => `Response time: ${ms} ms`,
+      noResponseTime: 'No response time recorded',
+      noChecksYet: 'No checks recorded yet.',
+      incidents: 'Incidents',
+      noIncidents: 'No incidents recorded.',
+      incidentStarted: (relative: string) => `Started ${relative}`,
+      ongoing: 'Ongoing',
+      recentChecks: 'Recent checks',
+      noChecksInRange: 'No checks recorded in this range. New results appear here after the scheduler runs.',
+      noResponse: 'No response',
+      failedAtStep: (index: number) => `Failed at step ${index}:`,
+    },
+  });
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const [monitor, setMonitor] = useState<Monitor | null>(null);
@@ -70,7 +181,7 @@ export default function MonitorDetails() {
           if (error instanceof ApiError && error.status === 404) {
             setNotFound(true);
           } else {
-            setError(error instanceof Error ? error.message : 'Unable to load monitor');
+            setError(error instanceof Error ? error.message : t.loadErrorFallback);
           }
         }
       })
@@ -96,7 +207,7 @@ export default function MonitorDetails() {
         setCheckNowState('idle');
       }, 4000);
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Unable to queue check');
+      setError(error instanceof Error ? error.message : t.queueErrorFallback);
       setCheckNowState('idle');
     }
   };
@@ -144,7 +255,7 @@ export default function MonitorDetails() {
   if (loading && !monitor) {
     return (
       <div className="rounded-lg border border-dashed border-border bg-secondary p-12 text-center">
-        <p className="text-lg font-semibold text-foreground">Loading monitor...</p>
+        <p className="text-lg font-semibold text-foreground">{t.loadingMonitor}</p>
       </div>
     );
   }
@@ -152,7 +263,7 @@ export default function MonitorDetails() {
   if (error && !monitor) {
     return (
       <div className="rounded-lg bg-destructive/10 p-12 text-center">
-        <p className="text-lg font-semibold text-destructive">Unable to load monitor</p>
+        <p className="text-lg font-semibold text-destructive">{t.loadErrorTitle}</p>
         <p className="mt-2 text-sm text-destructive">{error}</p>
       </div>
     );
@@ -196,14 +307,14 @@ export default function MonitorDetails() {
               className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
             >
               <RefreshCw className={cn('h-4 w-4', checkNowState === 'queueing' && 'animate-spin')} />
-              {checkNowState === 'queued' ? 'Check queued' : 'Check now'}
+              {checkNowState === 'queued' ? t.checkQueued : t.checkNow}
             </button>
             <button
               type="button"
               onClick={() => navigate(`/monitors/${monitor.id}/history`)}
               className="inline-flex items-center gap-2 rounded-lg border border-secondary bg-card px-3 py-1.5 text-sm font-medium text-primary transition-colors hover:border-border"
             >
-              View history
+              {t.viewHistory}
               <ArrowRight className="h-4 w-4" />
             </button>
           </div>
@@ -215,24 +326,24 @@ export default function MonitorDetails() {
       )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <MetricCard label="Status" value={getStatusLabel(monitor.status)} hint="Current monitor state" icon={Zap} />
+        <MetricCard label={t.metricStatus} value={getStatusLabel(monitor.status)} hint={t.metricStatusHint} icon={Zap} />
         <MetricCard
-          label="Uptime"
+          label={t.metricUptime}
           value={uptimePct !== null ? `${uptimePct}%` : '—'}
-          hint={`Share of successful checks in the last ${range}`}
+          hint={t.metricUptimeHint(t.rangeLabel(range))}
           icon={Activity}
         />
         <MetricCard
-          label="Average response"
-          value={averageMs !== null ? `${averageMs} ms` : 'No data'}
-          hint={`From checks in the last ${range}`}
+          label={t.metricAvgResponse}
+          value={averageMs !== null ? `${averageMs} ${t.unitMs}` : t.noData}
+          hint={t.metricAvgResponseHint(t.rangeLabel(range))}
           icon={Clock3}
         />
-        <MetricCard label="Checks" value={String(checks.length)} hint={`Completed in the last ${range}`} icon={FileText} />
+        <MetricCard label={t.metricChecks} value={String(checks.length)} hint={t.metricChecksHint(t.rangeLabel(range))} icon={FileText} />
         <MetricCard
-          label="Interval"
-          value={monitor.interval < 60 ? `${monitor.interval} s` : `${Math.round(monitor.interval / 60)} min`}
-          hint="Scheduler cadence"
+          label={t.metricInterval}
+          value={monitor.interval < 60 ? `${monitor.interval} ${t.unitSeconds}` : `${Math.round(monitor.interval / 60)} ${t.unitMinutes}`}
+          hint={t.metricIntervalHint}
           icon={ServerCog}
         />
       </div>
@@ -241,7 +352,7 @@ export default function MonitorDetails() {
         <Card>
           <CardHeader>
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <CardTitle>Response pattern</CardTitle>
+              <CardTitle>{t.chartTitle}</CardTitle>
               <div className="flex flex-wrap gap-2">
                 {ranges.map((item) => (
                   <button
@@ -255,7 +366,7 @@ export default function MonitorDetails() {
                         : 'bg-secondary text-foreground hover:text-primary'
                     )}
                   >
-                    {item}
+                    {t.rangeLabel(item)}
                   </button>
                 ))}
               </div>
@@ -264,11 +375,11 @@ export default function MonitorDetails() {
           <CardContent>
             {chartData.length === 0 ? (
               <div className="rounded-lg border border-dashed border-border bg-secondary p-10 text-center text-sm text-placeholder">
-                <p className="font-semibold text-muted-foreground">No checks in this range yet.</p>
+                <p className="font-semibold text-muted-foreground">{t.emptyChartTitle}</p>
                 <p className="mt-2">
                   {monitor.status === 'pending'
-                    ? 'This monitor is pending its first scheduled check.'
-                    : 'Try a wider time range to see earlier results.'}
+                    ? t.emptyChartPending
+                    : t.emptyChartWiden}
                 </p>
               </div>
             ) : (
@@ -304,37 +415,37 @@ export default function MonitorDetails() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Config summary</CardTitle>
+            <CardTitle>{t.configSummary}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 text-sm text-muted-foreground">
             {expected && (
               <div className="rounded-lg bg-secondary p-4">
-                <p className="font-semibold text-foreground">HTTP expectations</p>
-                {expected.status !== undefined && <p className="mt-2">Status: {expected.status}</p>}
-                {expected.body_contains !== undefined && <p>Body contains: {expected.body_contains}</p>}
-                {expected.response_time_ms !== undefined && <p>Response time threshold: {expected.response_time_ms} ms</p>}
+                <p className="font-semibold text-foreground">{t.httpExpectations}</p>
+                {expected.status !== undefined && <p className="mt-2">{t.expectedStatus}: {expected.status}</p>}
+                {expected.body_contains !== undefined && <p>{t.expectedBodyContains}: {expected.body_contains}</p>}
+                {expected.response_time_ms !== undefined && <p>{t.expectedResponseTime(expected.response_time_ms)}</p>}
               </div>
             )}
 
             {(monitor.confirmations ?? 1) > 1 && (
               <div className="rounded-lg bg-secondary p-4">
-                <p className="font-semibold text-foreground">Anti-flapping</p>
-                <p className="mt-2">Confirmations: {monitor.confirmations} consecutive checks before a status change</p>
+                <p className="font-semibold text-foreground">{t.antiFlapping}</p>
+                <p className="mt-2">{t.confirmations(monitor.confirmations ?? 1)}</p>
               </div>
             )}
 
             {(monitor.config.renotify_interval_minutes ?? 0) > 0 && (
               <div className="rounded-lg bg-secondary p-4">
-                <p className="font-semibold text-foreground">Re-alerts</p>
+                <p className="font-semibold text-foreground">{t.reAlerts}</p>
                 <p className="mt-2">
-                  Repeat alerts every {monitor.config.renotify_interval_minutes} min while the monitor is down
+                  {t.reAlertsText(monitor.config.renotify_interval_minutes ?? 0)}
                 </p>
               </div>
             )}
 
             {steps.length > 0 && (
               <div className="rounded-lg bg-secondary p-4">
-                <p className="font-semibold text-foreground">Browser scenario</p>
+                <p className="font-semibold text-foreground">{t.browserScenario}</p>
                 <div className="mt-3 space-y-3">
                   {steps.map((step, index) => (
                     <div key={index} className="flex gap-3">
@@ -355,7 +466,7 @@ export default function MonitorDetails() {
 
             {monitor.ssl_expires_at && (
               <div className="rounded-lg bg-secondary p-4">
-                <p className="font-semibold text-foreground">SSL certificate</p>
+                <p className="font-semibold text-foreground">{t.sslCertificate}</p>
                 <p
                   className={cn(
                     'mt-2',
@@ -367,15 +478,15 @@ export default function MonitorDetails() {
                   )}
                 >
                   {monitor.ssl_days_left !== null && monitor.ssl_days_left !== undefined && monitor.ssl_days_left <= 0
-                    ? 'Expired'
-                    : `Expires in ${monitor.ssl_days_left} days`}{' '}
+                    ? t.sslExpired
+                    : t.sslExpiresIn(monitor.ssl_days_left ?? 0)}{' '}
                   ({new Date(monitor.ssl_expires_at).toLocaleDateString()})
                 </p>
               </div>
             )}
 
             <div className="rounded-lg bg-secondary p-4">
-              <p className="font-semibold text-foreground">Last check</p>
+              <p className="font-semibold text-foreground">{t.lastCheck}</p>
               {lastCheck ? (
                 <div className="mt-3 space-y-2 text-xs text-muted-foreground">
                   <div className="flex items-center gap-2">
@@ -384,13 +495,13 @@ export default function MonitorDetails() {
                   </div>
                   <p>
                     {lastCheck.response_time_ms !== null
-                      ? `Response time: ${lastCheck.response_time_ms} ms`
-                      : 'No response time recorded'}
+                      ? t.responseTime(lastCheck.response_time_ms)
+                      : t.noResponseTime}
                   </p>
                   {lastCheck.error && <p className="font-medium text-destructive">{lastCheck.error}</p>}
                 </div>
               ) : (
-                <p className="mt-3 text-xs text-placeholder">No checks recorded yet.</p>
+                <p className="mt-3 text-xs text-placeholder">{t.noChecksYet}</p>
               )}
             </div>
           </CardContent>
@@ -401,13 +512,13 @@ export default function MonitorDetails() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Siren className="h-5 w-5 text-primary" />
-            Incidents
+            {t.incidents}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {incidents.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border bg-secondary p-8 text-center text-sm text-placeholder">
-              No incidents recorded.
+              {t.noIncidents}
             </div>
           ) : (
             incidents.map((incident) => (
@@ -415,11 +526,11 @@ export default function MonitorDetails() {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex flex-wrap items-center gap-3">
                     <StatusBadge status={incident.severity} />
-                    <p className="text-sm text-muted-foreground">Started {formatRelativeTime(incident.started_at)}</p>
+                    <p className="text-sm text-muted-foreground">{t.incidentStarted(formatRelativeTime(incident.started_at))}</p>
                   </div>
                   {incident.status === 'open' ? (
                     <span className="inline-flex items-center rounded-lg bg-status-down/10 px-2.5 py-1 text-xs font-semibold text-status-down">
-                      Ongoing
+                      {t.ongoing}
                     </span>
                   ) : (
                     <p className="text-sm font-semibold text-foreground">{formatDuration(incident.duration_seconds)}</p>
@@ -438,13 +549,13 @@ export default function MonitorDetails() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5 text-primary" />
-            Recent checks
+            {t.recentChecks}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {checks.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border bg-secondary p-8 text-center text-sm text-placeholder">
-              No checks recorded in this range. New results appear here after the scheduler runs.
+              {t.noChecksInRange}
             </div>
           ) : (
             checks.slice(0, 10).map((check) => (
@@ -455,13 +566,13 @@ export default function MonitorDetails() {
                     <p className="text-sm font-medium text-foreground">{new Date(check.timestamp).toLocaleString()}</p>
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    {check.response_time_ms !== null ? `${check.response_time_ms} ms` : check.error ?? 'No response'}
+                    {check.response_time_ms !== null ? `${check.response_time_ms} ${t.unitMs}` : check.error ?? t.noResponse}
                   </p>
                 </div>
                 {check.error && <p className="mt-3 text-xs leading-5 text-destructive">{check.error}</p>}
                 {check.details.failed_step && (
                   <p className="mt-2 text-xs text-muted-foreground">
-                    Failed at step {check.details.failed_step.index}: {check.details.failed_step.action}{' '}
+                    {t.failedAtStep(check.details.failed_step.index)} {check.details.failed_step.action}{' '}
                     {check.details.failed_step.selector ?? check.details.failed_step.url ?? check.details.failed_step.contains ?? ''}
                   </p>
                 )}

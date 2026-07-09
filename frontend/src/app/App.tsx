@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { RouterProvider } from 'react-router';
 import { router } from './routes';
+import { LanguageProvider } from './i18n';
 import { InstallPrompt } from './pwa/InstallPrompt';
 
 function setupPWA() {
@@ -28,9 +29,9 @@ export default function App() {
   }, []);
 
   return (
-    <>
+    <LanguageProvider>
       <RouterProvider router={router} />
       <InstallPrompt />
-    </>
+    </LanguageProvider>
   );
 }

@@ -2,8 +2,35 @@ import React, { useState } from 'react';
 import { usePWA } from './usePWA';
 import { Download, X, Apple } from 'lucide-react';
 import { Button } from '../components/ui/Button';
+import { useTexts } from '../i18n';
 
 export function InstallPrompt() {
+  const t = useTexts({
+    ru: {
+      installTitle: 'Установите PWA-приложение',
+      installBody:
+        'Установите дашборд: быстрый запуск, кэшированные статусы мониторов и готовность к push-уведомлениям.',
+      install: 'Установить',
+      later: 'Позже',
+      iosTitle: 'На экран «Домой»',
+      iosBody: 'Сначала установите приложение. Веб-push на iOS доступен только на iOS 16.4 и новее.',
+      tap: 'Нажмите',
+      share: 'Поделиться',
+      then: 'затем «На экран “Домой”»',
+    },
+    en: {
+      installTitle: 'Install PWA workspace',
+      installBody:
+        'Install the dashboard for faster launch, cached monitor status, and future push-ready behavior.',
+      install: 'Install',
+      later: 'Later',
+      iosTitle: 'Add to Home Screen',
+      iosBody: 'Install the app first. iOS web push is available only on iOS 16.4 and newer.',
+      tap: 'Tap',
+      share: 'Share',
+      then: 'then "Add to Home Screen"',
+    },
+  });
   const { isInstallable, isInstalled, isIOS, promptInstall } = usePWA();
   const [dismissed, setDismissed] = useState(false);
 
@@ -16,13 +43,13 @@ export function InstallPrompt() {
           <Download className="h-5 w-5" />
         </div>
         <div className="flex-1">
-          <h4 className="text-sm font-semibold leading-5 text-foreground">Install PWA workspace</h4>
+          <h4 className="text-sm font-semibold leading-5 text-foreground">{t.installTitle}</h4>
           <p className="mt-1 mb-3 text-xs leading-5 text-muted-foreground">
-            Install the dashboard for faster launch, cached monitor status, and future push-ready behavior.
+            {t.installBody}
           </p>
           <div className="flex gap-2">
-            <Button size="sm" onClick={promptInstall} className="flex-1">Install</Button>
-            <Button size="sm" variant="ghost" onClick={() => setDismissed(true)}>Later</Button>
+            <Button size="sm" onClick={promptInstall} className="flex-1">{t.install}</Button>
+            <Button size="sm" variant="ghost" onClick={() => setDismissed(true)}>{t.later}</Button>
           </div>
         </div>
         <button onClick={() => setDismissed(true)} className="absolute top-2 right-2 text-placeholder hover:text-muted-foreground">
@@ -41,12 +68,12 @@ export function InstallPrompt() {
         <div className="mb-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-muted-foreground">
           <Apple className="h-5 w-5" />
         </div>
-        <h4 className="text-center text-sm font-semibold leading-5 text-foreground">Add to Home Screen</h4>
+        <h4 className="text-center text-sm font-semibold leading-5 text-foreground">{t.iosTitle}</h4>
         <p className="mb-1 text-center text-xs leading-5 text-muted-foreground">
-          Install the app first. iOS web push is available only on iOS 16.4 and newer.
+          {t.iosBody}
         </p>
         <div className="mt-2 flex w-full items-center gap-2 rounded-lg border border-border bg-secondary p-2 text-center text-xs text-muted-foreground">
-          Tap <span className="inline-block rounded-sm border border-border bg-card px-1 font-serif">Share</span> then "Add to Home Screen"
+          {t.tap} <span className="inline-block rounded-sm border border-border bg-card px-1 font-serif">{t.share}</span> {t.then}
         </div>
       </div>
     );
