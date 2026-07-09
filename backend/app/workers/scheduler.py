@@ -14,7 +14,8 @@ from app.core.observability import (
     init_sentry,
     start_metrics_server,
 )
-from app.models import MaintenanceWindow, Monitor, SchedulerHeartbeat
+from app.models import MaintenanceWindow, Monitor, Organization, Plan, SchedulerHeartbeat
+from app.services.plans import min_interval_for, plan_gating_active
 from app.services.queue import DEAD_LETTER_QUEUES, RabbitPublisher, task_for_monitor
 from app.services.retention import ensure_partitions, rollup_and_prune
 
@@ -86,6 +87,7 @@ def publish_due_checks(publisher: RabbitPublisher | None = None) -> int:
             .with_for_update(skip_locked=True)
         ).all()
         maintenance_until = collect_maintenance_ends(db, monitors, now)
+        plan_minimums = collect_plan_minimums(db, monitors)
         for monitor in monitors:
             pause_until = maintenance_until.get(monitor.id)
             if pause_until is not None:
@@ -95,12 +97,38 @@ def publish_due_checks(publisher: RabbitPublisher | None = None) -> int:
                 continue
             task = task_for_monitor(monitor, timeout_seconds=settings.check_timeout_seconds)
             publisher.publish(task)
-            monitor.next_run_at = now + timedelta(seconds=monitor.interval)
+            monitor.next_run_at = now + timedelta(seconds=effective_interval(monitor, plan_minimums))
             count += 1
         db.commit()
     if count:
         SCHEDULER_PUBLISHED.inc(count)
     return count
+
+
+def collect_plan_minimums(db: Session, monitors: list[Monitor]) -> dict[int, Plan]:
+    """org_id -> план организации (для клэмпа интервала). Пусто вне enterprise.
+
+    Клэмп на лету делает downgrade честным без мутации настроек мониторов:
+    интервал в конфиге пользователя сохраняется и снова действует после апгрейда.
+    """
+    if not plan_gating_active():
+        return {}
+    org_ids = {monitor.org_id for monitor in monitors}
+    if not org_ids:
+        return {}
+    rows = db.execute(
+        select(Organization.id, Plan)
+        .join(Plan, Plan.slug == Organization.plan_slug)
+        .where(Organization.id.in_(org_ids))
+    ).all()
+    return {org_id: plan for org_id, plan in rows}
+
+
+def effective_interval(monitor: Monitor, plan_minimums: dict[int, Plan]) -> int:
+    plan = plan_minimums.get(monitor.org_id)
+    if plan is None:
+        return monitor.interval
+    return max(monitor.interval, min_interval_for(plan, monitor.type))
 
 
 def collect_maintenance_ends(db: Session, monitors: list[Monitor], now: datetime) -> dict[int, datetime]:

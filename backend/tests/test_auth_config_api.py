@@ -173,9 +173,11 @@ monitors:
     assert uploaded.status_code == 403
 
     monkeypatch.setattr(settings, "deployment_mode", "enterprise")
+    # enterprise снимает team-лимит, но включает тарифный гейтинг:
+    # интервал должен уважать минимум плана free (300с)
     third = client.post(
         "/api/v1/monitors",
-        json={"id": "two", "type": "http", "url": "https://example.com", "interval": 60},
+        json={"id": "two", "type": "http", "url": "https://example.com", "interval": 600},
         headers=auth_headers,
     )
     assert third.status_code == 201

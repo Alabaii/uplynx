@@ -23,6 +23,7 @@ from app.schemas import (
 from app.services.audit import record
 from app.services.email import send_email
 from app.services.orgs import enforce_member_quota
+from app.services.plans import enforce_plan_member_limit
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +166,8 @@ def add_member(
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="User is already a member")
     enforce_member_quota(db, ctx.org)
+    # лимит участников тарифа — только здесь, НЕ при регистрации (см. enforce_plan_member_limit)
+    enforce_plan_member_limit(db, ctx.org)
     member = OrgMember(org_id=ctx.org.id, user_id=user.id, role=payload.role)
     db.add(member)
     record(

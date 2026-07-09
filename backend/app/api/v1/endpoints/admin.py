@@ -19,7 +19,7 @@ from app.schemas import (
     PlanUpdate,
 )
 from app.services.audit import record
-from app.services.plans import ensure_default_plans
+from app.services.plans import apply_plan_downgrade, ensure_default_plans
 from app.services.queue import BROWSER_QUEUE, DEAD_LETTER_QUEUES, HTTP_QUEUE, RabbitPublisher
 
 logger = logging.getLogger(__name__)
@@ -172,6 +172,8 @@ def set_org_plan(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found")
     previous = org.plan_slug
     org.plan_slug = payload.plan_slug
+    # downgrade: мониторы сверх лимитов нового плана ставятся на паузу (не удаляются)
+    paused = apply_plan_downgrade(db, org)
     record(
         db,
         org_id=org.id,
@@ -179,7 +181,7 @@ def set_org_plan(
         action="org.plan_change",
         entity="org",
         entity_id=org.slug,
-        payload={"from": previous, "to": payload.plan_slug},
+        payload={"from": previous, "to": payload.plan_slug, "paused_monitors": paused},
     )
     db.commit()
     members_count = db.scalar(select(func.count()).select_from(OrgMember).where(OrgMember.org_id == org.id)) or 0
@@ -192,4 +194,5 @@ def set_org_plan(
         members_count=members_count,
         monitors_count=monitors_count,
         created_at=org.created_at,
+        paused_monitors=paused,
     )

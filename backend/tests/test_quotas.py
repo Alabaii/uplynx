@@ -1,5 +1,8 @@
+from sqlalchemy import select
+
 from app.core.config import get_settings
-from app.models import User
+from app.models import Organization, User
+from app.services.plans import ensure_default_plans
 
 MONITOR_PAYLOAD = {"id": "site", "type": "http", "url": "https://example.com", "interval": 60}
 
@@ -13,6 +16,16 @@ def register_and_login(client, email):
 
 def enterprise(monkeypatch):
     monkeypatch.setattr(get_settings(), "deployment_mode", "enterprise")
+
+
+def unlock_plan_limits(db_session_factory):
+    """Квотные тесты проверяют org-квоты, а не тарифы: переводим организацию на
+    щедрый business, чтобы гейтинг плана (free по умолчанию) не мешал сценарию."""
+    with db_session_factory() as db:
+        ensure_default_plans(db)
+        org = db.scalar(select(Organization).where(Organization.slug == "default"))
+        org.plan_slug = "business"
+        db.commit()
 
 
 def config_with(*slugs, disabled=()):
@@ -50,9 +63,10 @@ def test_patch_current_org_owner_only(client):
     assert client.get("/api/v1/auth/me", headers=owner).json()["organization"]["name"] == "Renamed"
 
 
-def test_monitor_quota_on_create_and_upload(client, monkeypatch):
+def test_monitor_quota_on_create_and_upload(client, db_session_factory, monkeypatch):
     enterprise(monkeypatch)
     owner = register_and_login(client, "owner@example.com")
+    unlock_plan_limits(db_session_factory)
     assert client.patch("/api/v1/orgs/current", json={"quota_monitors": 1}, headers=owner).status_code == 200
 
     assert client.post("/api/v1/monitors", json=MONITOR_PAYLOAD, headers=owner).status_code == 201
@@ -78,6 +92,7 @@ def test_monitor_quota_on_create_and_upload(client, monkeypatch):
 def test_member_quota_on_add_and_register(client, db_session_factory, monkeypatch):
     enterprise(monkeypatch)
     owner = register_and_login(client, "owner@example.com")
+    unlock_plan_limits(db_session_factory)
     assert client.patch("/api/v1/orgs/current", json={"quota_members": 2}, headers=owner).status_code == 200
 
     # вторая регистрация занимает последний слот default-организации
@@ -109,9 +124,10 @@ def test_member_quota_on_add_and_register(client, db_session_factory, monkeypatc
     )
 
 
-def test_null_quota_means_unlimited(client, monkeypatch):
+def test_null_quota_means_unlimited(client, db_session_factory, monkeypatch):
     enterprise(monkeypatch)
     owner = register_and_login(client, "owner@example.com")
+    unlock_plan_limits(db_session_factory)
 
     assert client.patch("/api/v1/orgs/current", json={"quota_monitors": 1}, headers=owner).status_code == 200
     assert client.post("/api/v1/monitors", json=MONITOR_PAYLOAD, headers=owner).status_code == 201

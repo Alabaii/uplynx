@@ -455,6 +455,8 @@ class AdminOrgRead(BaseModel):
     members_count: int
     monitors_count: int
     created_at: datetime
+    # заполняется только ответом на смену плана: кто поставлен на паузу downgrade-ом
+    paused_monitors: list[str] | None = None
 
 
 class OrgPlanUpdate(BaseModel):
