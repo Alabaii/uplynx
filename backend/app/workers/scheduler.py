@@ -7,11 +7,38 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
+from app.core.observability import (
+    DLQ_DEPTH,
+    SCHEDULER_OVERDUE_MONITORS,
+    SCHEDULER_PUBLISHED,
+    init_sentry,
+    start_metrics_server,
+)
 from app.models import MaintenanceWindow, Monitor, SchedulerHeartbeat
-from app.services.queue import RabbitPublisher, task_for_monitor
+from app.services.queue import DEAD_LETTER_QUEUES, RabbitPublisher, task_for_monitor
 from app.services.retention import ensure_partitions, rollup_and_prune
 
 logger = logging.getLogger(__name__)
+
+
+def update_pipeline_gauges(publisher: RabbitPublisher) -> None:
+    """Обновляет gauges тика: отстающие мониторы и глубины DLQ.
+
+    Глубина DLQ берётся из ответа queue_declare (idempotent, тот же durable) —
+    без зависимости от management API RabbitMQ.
+    """
+    settings = get_settings()
+    threshold = datetime.now(timezone.utc) - timedelta(seconds=settings.scheduler_heartbeat_stale_seconds)
+    with SessionLocal() as db:
+        overdue = db.scalar(
+            select(func.count())
+            .select_from(Monitor)
+            .where(Monitor.enabled.is_(True), Monitor.next_run_at < threshold)
+        ) or 0
+    SCHEDULER_OVERDUE_MONITORS.set(overdue)
+    for dead_queue in DEAD_LETTER_QUEUES.values():
+        method = publisher.declare_queue(dead_queue)
+        DLQ_DEPTH.labels(queue=dead_queue).set(method.method.message_count)
 
 
 def write_heartbeat() -> None:
@@ -71,6 +98,8 @@ def publish_due_checks(publisher: RabbitPublisher | None = None) -> int:
             monitor.next_run_at = now + timedelta(seconds=monitor.interval)
             count += 1
         db.commit()
+    if count:
+        SCHEDULER_PUBLISHED.inc(count)
     return count
 
 
@@ -129,6 +158,10 @@ def run_forever() -> None:
         except Exception:  # noqa: BLE001
             logger.exception("scheduler iteration failed")
         try:
+            update_pipeline_gauges(publisher)
+        except Exception:  # noqa: BLE001
+            logger.exception("failed to update pipeline gauges")
+        try:
             # heartbeat после публикации: отражает, что итерация реально дошла до конца
             write_heartbeat()
         except Exception:  # noqa: BLE001
@@ -138,4 +171,6 @@ def run_forever() -> None:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    init_sentry("scheduler")
+    start_metrics_server()
     run_forever()

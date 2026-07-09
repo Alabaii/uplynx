@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     # heartbeat шедулера старше этого — /health/scheduler отдаёт 503 (liveness)
     scheduler_heartbeat_stale_seconds: int = 30
     check_timeout_seconds: int = 30
+    # Sentry: пустой DSN — отключён (dev/self-hosted работают без него)
+    sentry_dsn: str | None = None
+    sentry_traces_sample_rate: float = 0.0
+    # порт /metrics для scheduler/воркеров; 0 — не поднимать (API отдаёт /metrics роутом)
+    metrics_port: int = 0
     retention_days: int = 365
     browser_concurrency: int = 2
     # SSRF-защита: по умолчанию мониторы не могут вести во внутреннюю сеть.
