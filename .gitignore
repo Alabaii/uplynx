@@ -256,3 +256,5 @@ AGENTS.md
 # Markdown-документы (планы, спеки, заметки вайбкодинга) — в репо только README
 *.md
 !README.md
+# Дампы PostgreSQL (сервис backup) — не для репозитория
+backups/

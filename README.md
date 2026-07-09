@@ -47,6 +47,32 @@ Email-канал включается переменной `SMTP_HOST` и пок
 письма просто не отправляются (пишется лог), UI честно показывает, что email не настроен.
 Для локальной проверки удобен MailHog (`SMTP_HOST=mailhog`, `SMTP_PORT=1025`, `SMTP_STARTTLS=false`).
 
+## Бэкапы и восстановление
+
+Сервис `backup` (в составе compose) снимает `pg_dump` в формате custom в `./backups`:
+первый дамп — сразу при старте, дальше раз в `BACKUP_INTERVAL_SECONDS` (сутки),
+хранится `BACKUP_KEEP` (7) свежих дампов. Каталог `./backups` — на хосте: регулярно
+копируйте его на внешнее хранилище, локальный дамп не переживёт смерть диска.
+
+Проверка восстановимости (не трогает рабочую БД — поднимает временный контейнер,
+восстанавливает свежий дамп и печатает счётчики):
+
+```bash
+deploy/restore-check.sh              # свежайший дамп из ./backups
+deploy/restore-check.sh backups/uplynx-20260710-120000.dump
+```
+
+Реальное восстановление после потери БД:
+
+```bash
+docker compose down
+docker volume rm <проект>_postgres-data          # только при невосстановимом томе!
+docker compose up -d postgres                     # init-скрипт создаст роли заново
+docker compose cp backups/<дамп> postgres:/tmp/restore.dump
+docker compose exec postgres pg_restore -U monitor -d monitor /tmp/restore.dump
+docker compose up -d
+```
+
 ## Требования
 
 - Docker и Docker Compose
