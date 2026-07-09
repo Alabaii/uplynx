@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { Activity, LogOut, Search, Smartphone } from 'lucide-react';
 import { clearSession, getSessionEmail } from '../auth';
 import { CommandPalette } from '../components/CommandPalette';
+import { EmailVerificationBanner } from '../components/EmailVerificationBanner';
 import { OfflineBanner } from '../components/OfflineBanner';
 import { getMe } from '../api';
 import { useDeploymentMode } from '../meta-context';
@@ -24,6 +25,8 @@ export function AppLayout() {
   const [orgName, setOrgName] = useState('My team');
   const [orgId, setOrgId] = useState<number | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // default true — не мигаем баннером до ответа /me
+  const [emailVerified, setEmailVerified] = useState(true);
   const isEnterprise = useDeploymentMode() === 'enterprise';
 
   useEffect(() => {
@@ -35,6 +38,7 @@ export function AppLayout() {
           setEmail(user.email);
           setOrgName(user.organization?.name ?? 'My team');
           setOrgId(user.organization?.id ?? null);
+          setEmailVerified(user.email_verified ?? true);
         }
       })
       .catch(() => {
@@ -72,6 +76,7 @@ export function AppLayout() {
     <div className="min-h-screen bg-background">
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       {isOffline && <OfflineBanner />}
+      {!emailVerified && <EmailVerificationBanner email={email} />}
 
       <div className="mx-auto flex min-h-screen max-w-[1600px]">
         <aside className="sticky top-0 hidden h-screen w-72 shrink-0 bg-card px-4 py-6 shadow-card lg:flex lg:flex-col">

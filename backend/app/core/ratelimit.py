@@ -55,3 +55,9 @@ def get_register_limiter() -> SlidingWindowLimiter:
 def get_forgot_password_limiter() -> SlidingWindowLimiter:
     settings = get_settings()
     return SlidingWindowLimiter(settings.forgot_rate_limit_attempts, settings.forgot_rate_limit_window_seconds)
+
+
+@lru_cache
+def get_verify_email_limiter() -> SlidingWindowLimiter:
+    settings = get_settings()
+    return SlidingWindowLimiter(settings.verify_rate_limit_attempts, settings.verify_rate_limit_window_seconds)
