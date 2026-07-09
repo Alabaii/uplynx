@@ -212,7 +212,7 @@ type PlanFormState = {
 
 function formStateFromPlan(plan: Plan): PlanFormState {
   return {
-    price: (plan.price_monthly_cents / 100).toString(),
+    price: (plan.price_monthly_kopeks / 100).toString(),
     discount: plan.annual_discount_pct.toString(),
     maxMonitors: plan.max_monitors.toString(),
     minInterval: plan.min_interval_seconds,
@@ -270,7 +270,7 @@ function PlanCard({ plan, onSaved }: { plan: Plan; onSaved: (plan: Plan) => void
       saveError: 'Unable to save plan',
       priceLabel: 'Price, ₽/month',
       discountLabel: 'Annual discount, %',
-      annualHint: (price: string) => `≈ ₽${price}/month billed annually`,
+      annualHint: (price: string) => `≈ ${price} ₽/month billed annually`,
       monitorsLabel: 'Monitors',
       browserMonitorsLabel: 'Browser monitors',
       minIntervalLabel: 'Min interval',
@@ -304,7 +304,7 @@ function PlanCard({ plan, onSaved }: { plan: Plan; onSaved: (plan: Plan) => void
     setError('');
     try {
       const updated = await updatePlan(plan.slug, {
-        price_monthly_cents: Math.round(Number.parseFloat(form.price || '0') * 100),
+        price_monthly_kopeks: Math.round(Number.parseFloat(form.price || '0') * 100),
         annual_discount_pct: Number.parseInt(form.discount || '0', 10),
         max_monitors: Number.parseInt(form.maxMonitors || '1', 10),
         min_interval_seconds: form.minInterval,
@@ -341,7 +341,7 @@ function PlanCard({ plan, onSaved }: { plan: Plan; onSaved: (plan: Plan) => void
             label={t.priceLabel}
             type="number"
             min="0"
-            step="0.5"
+            step="1"
             value={form.price}
             onChange={(event) => set('price', event.target.value)}
           />
@@ -355,7 +355,7 @@ function PlanCard({ plan, onSaved }: { plan: Plan; onSaved: (plan: Plan) => void
           />
         </div>
         {annualMonthly !== null && annualMonthly > 0 && (
-          <p className="text-xs text-muted-foreground">{t.annualHint(annualMonthly.toFixed(2))}</p>
+          <p className="text-xs text-muted-foreground">{t.annualHint(String(Math.round(annualMonthly)))}</p>
         )}
 
         <div className="grid grid-cols-2 gap-3">

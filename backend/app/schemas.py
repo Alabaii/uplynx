@@ -394,7 +394,7 @@ class MetaRead(BaseModel):
 class PlanRead(BaseModel):
     slug: str
     name: str
-    price_monthly_cents: int
+    price_monthly_kopeks: int
     annual_discount_pct: int
     max_monitors: int
     min_interval_seconds: int
@@ -411,7 +411,7 @@ class PlanRead(BaseModel):
 
 class PlanUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=80)
-    price_monthly_cents: int | None = Field(default=None, ge=0)
+    price_monthly_kopeks: int | None = Field(default=None, ge=0)
     annual_discount_pct: int | None = Field(default=None, ge=0, le=100)
     max_monitors: int | None = Field(default=None, ge=1)
     min_interval_seconds: int | None = Field(default=None, ge=10)
