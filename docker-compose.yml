@@ -64,6 +64,8 @@ services:
       SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
       # базовый URL приложения для ссылок в письмах
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5173}
+      # платформенные суперадмины (страница /admin): email через запятую; пусто — никто
+      SUPERUSER_EMAILS: ${SUPERUSER_EMAILS:-}
     ports:
       - "8000:8000"
     restart: unless-stopped

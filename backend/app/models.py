@@ -39,6 +39,33 @@ class Organization(Base):
     quota_members: Mapped[int | None] = mapped_column(Integer)
     status_page_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     alert_emails: Mapped[list[str]] = mapped_column(JSONType, nullable=False, default=list)
+    plan_slug: Mapped[str] = mapped_column(
+        ForeignKey("plans.slug"), nullable=False, default="free", server_default="free"
+    )
+
+
+class Plan(Base):
+    """Тарифный план платформы. Редактируется суперадмином в админ-панели.
+
+    Глобальная таблица (не org-scoped, без RLS). Лимиты пока информационные —
+    их принудительное применение (гейтинг) выполняется отдельным этапом.
+    max_members NULL — без лимита участников.
+    """
+
+    __tablename__ = "plans"
+
+    slug: Mapped[str] = mapped_column(String(40), primary_key=True)
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    price_monthly_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    annual_discount_pct: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_monitors: Mapped[int] = mapped_column(Integer, nullable=False)
+    min_interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_browser_monitors: Mapped[int] = mapped_column(Integer, nullable=False)
+    browser_min_interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=300)
+    max_members: Mapped[int | None] = mapped_column(Integer)
+    retention_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=utcnow)
 
 
 class PasswordResetToken(Base):

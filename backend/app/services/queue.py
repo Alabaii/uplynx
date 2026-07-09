@@ -24,18 +24,19 @@ def queue_for_type(monitor_type: str) -> str:
     raise ValueError(f"Unsupported monitor type: {monitor_type}")
 
 
-def declare_check_queue(channel: "pika.adapters.blocking_connection.BlockingChannel", queue: str) -> None:
+def declare_check_queue(channel: "pika.adapters.blocking_connection.BlockingChannel", queue: str):  # type: ignore[no-untyped-def]
     """Идемпотентно объявляет рабочую очередь с dead-letter и её DLQ.
 
     Отклонённое воркером (nack, requeue=False) сообщение RabbitMQ автоматически
     перекладывает в DLX → DLQ вместо тихой потери. Вызывается и publisher'ом,
     и consumer'ом — кто первый, тот и создаёт topology.
+    Возвращает declare-фрейм рабочей очереди (method.message_count — её глубина).
     """
     dead_queue = DEAD_LETTER_QUEUES[queue]
     channel.exchange_declare(exchange=DLX_EXCHANGE, exchange_type="direct", durable=True)
     channel.queue_declare(queue=dead_queue, durable=True)
     channel.queue_bind(queue=dead_queue, exchange=DLX_EXCHANGE, routing_key=dead_queue)
-    channel.queue_declare(
+    return channel.queue_declare(
         queue=queue,
         durable=True,
         arguments={"x-dead-letter-exchange": DLX_EXCHANGE, "x-dead-letter-routing-key": dead_queue},
@@ -88,6 +89,10 @@ class RabbitPublisher:
     def declare_queue(self, queue: str):  # type: ignore[no-untyped-def]
         """Идемпотентный declare durable-очереди; в ответе method.message_count — её глубина."""
         return self._get_channel().queue_declare(queue=queue, durable=True)
+
+    def check_queue_depth(self, queue: str) -> int:
+        """Глубина рабочей очереди *.v2 — через полный declare (совпадающие аргументы обязательны)."""
+        return declare_check_queue(self._get_channel(), queue).method.message_count
 
     def _publish(self, queue: str, body: bytes) -> None:
         channel = self._get_channel()
