@@ -82,6 +82,8 @@ services:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-monitor}:${POSTGRES_PASSWORD:-monitor}@postgres:5432/${POSTGRES_DB:-monitor}
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-change-me}
+      # нужен шедулеру: в enterprise он применяет мин. интервал тарифа на лету
+      DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-team}
       SENTRY_DSN: ${SENTRY_DSN:-}
       METRICS_PORT: "9101"
     # /metrics только на localhost хоста — наружу не публикуется

@@ -12,6 +12,11 @@ from app.core.config import get_settings
 from app.core.ssrf import BlockedTargetError, validate_public_url
 from app.models import ConfigVersion, Monitor, Organization, User
 from app.schemas import ConfigDocument, ConfigMonitor, MonitorCreate, MonitorUpdate
+from app.services.plans import (
+    count_enabled_monitors,
+    enforce_plan_monitor_limits,
+    validate_plan_interval,
+)
 
 
 def validate_target_url(url: str | None) -> None:
@@ -171,6 +176,16 @@ def resync_monitors(db: Session, user: User, org: Organization, document: Config
 def upload_config(db: Session, user: User, org: Organization, content: str, fmt: str) -> ConfigVersion:
     document = parse_config(content, fmt)
     enforce_monitor_limit(db, org, sum(1 for m in document.monitors if m.enabled))
+    # гейтинг плана: конфиг описывает целевое состояние организации целиком
+    enforce_plan_monitor_limits(
+        db,
+        org,
+        enabled_total=sum(1 for m in document.monitors if m.enabled),
+        enabled_browser=sum(1 for m in document.monitors if m.enabled and m.type == "browser"),
+    )
+    for cfg in document.monitors:
+        if cfg.enabled:
+            validate_plan_interval(db, org, cfg.type, cfg.interval)
     version = create_config_version(db, user, org, content, fmt)
     resync_monitors(db, user, org, document)
     db.commit()
@@ -208,6 +223,14 @@ def create_monitor_from_payload(db: Session, user: User, org: Organization, payl
             select(func.count()).select_from(Monitor).where(Monitor.enabled.is_(True), Monitor.org_id == org.id)
         ) or 0
         enforce_monitor_limit(db, org, org_enabled + 1)
+        enabled_total, enabled_browser = count_enabled_monitors(db, org)
+        enforce_plan_monitor_limits(
+            db,
+            org,
+            enabled_total=enabled_total + 1,
+            enabled_browser=enabled_browser + (1 if payload.type == "browser" else 0),
+        )
+        validate_plan_interval(db, org, payload.type, payload.interval)
     config_json = payload_config_json(payload)
     monitor = Monitor(
         user_id=user.id,
@@ -233,6 +256,18 @@ def update_monitor_from_payload(db: Session, user: User, org: Organization, moni
     data = payload.model_dump(exclude_unset=True)
     if "url" in data:
         validate_target_url(data["url"])
+    will_be_enabled = data.get("enabled", monitor.enabled)
+    if will_be_enabled:
+        validate_plan_interval(db, org, monitor.type, data.get("interval", monitor.interval))
+    if data.get("enabled") and not monitor.enabled:
+        # включение ранее выключенного — это +1 к счётчикам плана
+        enabled_total, enabled_browser = count_enabled_monitors(db, org)
+        enforce_plan_monitor_limits(
+            db,
+            org,
+            enabled_total=enabled_total + 1,
+            enabled_browser=enabled_browser + (1 if monitor.type == "browser" else 0),
+        )
     config = dict(monitor.config_json or {})
     for field in ["name", "url", "interval", "enabled", "status"]:
         if field in data:
