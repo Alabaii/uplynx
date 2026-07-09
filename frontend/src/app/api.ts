@@ -54,6 +54,7 @@ export type Monitor = {
       response_time_ms?: number;
     };
     steps?: BrowserStep[];
+    renotify_interval_minutes?: number;
   };
 };
 
@@ -306,6 +307,7 @@ export function createMonitor(payload: {
   expected?: { status?: number; body_contains?: string; response_time_ms?: number };
   steps?: BrowserStep[];
   confirmations?: number;
+  renotify_interval_minutes?: number;
 }) {
   return request<Monitor>('/monitors', {
     method: 'POST',

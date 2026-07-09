@@ -90,6 +90,7 @@ export default function AddMonitor() {
     const expectedStatus = Number(formData.get('expectedStatus') ?? 200);
     const bodyContains = String(formData.get('bodyContains') ?? '').trim();
     const confirmations = Number(formData.get('confirmations') ?? 1);
+    const renotifyMinutes = Number(formData.get('renotifyMinutes') ?? 0);
     const responseTimeMs = Number(formData.get('responseTimeMs') ?? 0);
     const slug = name
       .toLowerCase()
@@ -104,6 +105,7 @@ export default function AddMonitor() {
         url,
         interval,
         confirmations: confirmations > 1 ? confirmations : undefined,
+        renotify_interval_minutes: renotifyMinutes > 0 ? renotifyMinutes : undefined,
         expected:
           monitorType === 'http'
             ? {
@@ -177,6 +179,14 @@ export default function AddMonitor() {
                 min={1}
                 max={10}
                 defaultValue={1}
+              />
+              <Input
+                label="Re-alert every N minutes while down (0 = off)"
+                name="renotifyMinutes"
+                type="number"
+                min={0}
+                max={1440}
+                defaultValue={0}
               />
             </div>
 

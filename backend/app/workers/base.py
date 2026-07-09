@@ -2,7 +2,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pika
 from sqlalchemy import select
@@ -11,9 +11,9 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.core.security import decrypt_secret
-from app.models import CheckResult, Monitor, Organization, PushSubscription, TelegramIntegration
+from app.models import CheckResult, Incident, Monitor, Organization, PushSubscription, TelegramIntegration
 from app.schemas import CheckTask
-from app.services.alerting import alert_scope_for_result, build_alert_text
+from app.services.alerting import alert_scope_for_result, build_alert_text, build_renotify_text
 from app.services.email import email_enabled, send_email
 from app.services.incidents import update_incident_for_status_change
 from app.services.queue import deserialize_task
@@ -83,13 +83,8 @@ async def send_email_alerts(monitor: Monitor, scope: str, body: str) -> None:
         logger.info("sent %s email alerts for monitor %s", sent, monitor.slug)
 
 
-async def send_status_alert(monitor: Monitor, check_result: CheckResult, previous_status: str | None) -> None:
-    if previous_status == check_result.status:
-        return
-    scope = alert_scope_for_result(previous_status, check_result.status)
-    if not scope:
-        return
-    text = build_alert_text(monitor, check_result, scope)
+async def broadcast_alert(monitor: Monitor, scope: str, text: str) -> None:
+    """Рассылает текст во все каналы; сбой одного канала не блокирует остальные."""
     try:
         await send_telegram_alert(monitor, scope, text)
     except Exception:  # noqa: BLE001 — push отправляется независимо от Telegram
@@ -99,6 +94,26 @@ async def send_status_alert(monitor: Monitor, check_result: CheckResult, previou
         await send_email_alerts(monitor, scope, text)
     except Exception:  # noqa: BLE001 — email не должен ломать persist_result
         logger.exception("failed to send email alerts for monitor %s", monitor.id)
+
+
+async def send_status_alert(monitor: Monitor, check_result: CheckResult, previous_status: str | None) -> None:
+    if previous_status == check_result.status:
+        return
+    scope = alert_scope_for_result(previous_status, check_result.status)
+    if not scope:
+        return
+    await broadcast_alert(monitor, scope, build_alert_text(monitor, check_result, scope))
+
+
+def renotify_due(incident: Incident, config_json: dict | None, now: datetime) -> bool:
+    """Пора ли слать повторный алерт по открытому инциденту (renotify_interval_minutes)."""
+    minutes = (config_json or {}).get("renotify_interval_minutes")
+    if not minutes:
+        return False
+    last = incident.last_notified_at or incident.started_at
+    if last.tzinfo is None:  # sqlite отдаёт naive datetime
+        last = last.replace(tzinfo=timezone.utc)
+    return now - last >= timedelta(minutes=minutes)
 
 
 def resolve_effective_status(db: Session, monitor: Monitor, raw_status: str) -> str:
@@ -144,11 +159,31 @@ async def persist_result(task: CheckTask, result: dict) -> None:
         db.add(check_result)
         db.flush()  # текущий результат участвует в серии подтверждений
         monitor.status = resolve_effective_status(db, monitor, result["status"])
+        renotify_text: str | None = None
         if monitor.status != previous_status:
             # эффективная смена статуса — точка открытия/закрытия инцидента (та же транзакция)
             update_incident_for_status_change(db, monitor, monitor.status, result.get("error"))
+        elif monitor.status in ("down", "degraded"):
+            incident = db.scalar(
+                select(Incident).where(Incident.monitor_id == monitor.id, Incident.status == "open")
+            )
+            now = datetime.now(timezone.utc)
+            if incident is not None and renotify_due(incident, monitor.config_json, now):
+                # отметка до отправки: упавшая рассылка не зациклит повторы на каждой проверке
+                incident.last_notified_at = now
+                started = incident.started_at
+                if started.tzinfo is None:
+                    started = started.replace(tzinfo=timezone.utc)
+                minutes_down = int((now - started).total_seconds() // 60)
+                error = result.get("error") or incident.trigger_error
+                renotify_text = build_renotify_text(monitor, monitor.status, error, minutes_down)
         db.commit()
     if monitor.status == previous_status:
+        if renotify_text:
+            try:
+                await broadcast_alert(monitor, monitor.status, renotify_text)
+            except Exception:  # noqa: BLE001
+                logger.exception("failed to send renotify alert for monitor %s", monitor.id)
         return
     try:
         await send_status_alert(monitor, check_result, previous_status)
