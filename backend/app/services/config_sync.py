@@ -78,6 +78,7 @@ def monitor_to_config(monitor: Monitor) -> ConfigMonitor:
         steps=data.get("steps"),
         enabled=monitor.enabled,
         confirmations=data.get("confirmations", 1),
+        renotify_interval_minutes=data.get("renotify_interval_minutes"),
     )
 
 
@@ -225,6 +226,11 @@ def update_monitor_from_payload(db: Session, user: User, org: Organization, moni
             config["confirmations"] = data["confirmations"]
         else:
             config.pop("confirmations", None)
+    if "renotify_interval_minutes" in data:
+        if data["renotify_interval_minutes"]:
+            config["renotify_interval_minutes"] = data["renotify_interval_minutes"]
+        else:
+            config.pop("renotify_interval_minutes", None)
     monitor.config_json = config
     if monitor.enabled and monitor.next_run_at is None:
         monitor.next_run_at = datetime.now(timezone.utc)

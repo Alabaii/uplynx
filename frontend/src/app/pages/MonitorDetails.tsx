@@ -294,6 +294,15 @@ export default function MonitorDetails() {
               </div>
             )}
 
+            {(monitor.config.renotify_interval_minutes ?? 0) > 0 && (
+              <div className="rounded-lg bg-secondary p-4">
+                <p className="font-semibold text-foreground">Re-alerts</p>
+                <p className="mt-2">
+                  Repeat alerts every {monitor.config.renotify_interval_minutes} min while the monitor is down
+                </p>
+              </div>
+            )}
+
             {steps.length > 0 && (
               <div className="rounded-lg bg-secondary p-4">
                 <p className="font-semibold text-foreground">Browser scenario</p>

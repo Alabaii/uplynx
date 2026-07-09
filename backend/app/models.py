@@ -197,6 +197,8 @@ class Incident(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     duration_seconds: Mapped[int | None] = mapped_column(Integer)
     trigger_error: Mapped[str | None] = mapped_column(Text)
+    # момент последнего повторного алерта; NULL — уведомляли только при открытии
+    last_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class MaintenanceWindow(Base):
