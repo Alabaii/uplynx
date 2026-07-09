@@ -1,34 +1,15 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
-import {
-  Activity,
-  FileCode2,
-  LayoutDashboard,
-  LogOut,
-  PlusCircle,
-  Send,
-  Siren,
-  Smartphone,
-  Users,
-  Wrench,
-} from 'lucide-react';
+import { Activity, LogOut, Search, Smartphone } from 'lucide-react';
 import { clearSession, getSessionEmail } from '../auth';
+import { CommandPalette } from '../components/CommandPalette';
 import { OfflineBanner } from '../components/OfflineBanner';
 import { getMe } from '../api';
 import { useDeploymentMode } from '../meta-context';
 import { OrgSwitcher } from './OrgSwitcher';
+import { navigation } from './navigation';
 import { usePWA } from '../pwa/usePWA';
 import { cn } from '../utils/cn';
-
-const navigation = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/incidents', label: 'Incidents', icon: Siren },
-  { to: '/maintenance', label: 'Maintenance', icon: Wrench },
-  { to: '/config', label: 'Config', icon: FileCode2 },
-  { to: '/monitors/new', label: 'New Monitor', icon: PlusCircle },
-  { to: '/team', label: 'Team', icon: Users },
-  { to: '/telegram', label: 'Telegram', icon: Send },
-];
 
 // нижняя навигация на мобиле — ровно 5 пунктов в grid-cols-5; Incidents и Maintenance доступны
 // на десктопе, поэтому здесь они опущены, чтобы не ломать сетку лишними пунктами
@@ -42,6 +23,7 @@ export function AppLayout() {
   const [email, setEmail] = useState(() => getSessionEmail() ?? '');
   const [orgName, setOrgName] = useState('My team');
   const [orgId, setOrgId] = useState<number | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const isEnterprise = useDeploymentMode() === 'enterprise';
 
   useEffect(() => {
@@ -88,6 +70,7 @@ export function AppLayout() {
 
   return (
     <div className="min-h-screen bg-background">
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       {isOffline && <OfflineBanner />}
 
       <div className="mx-auto flex min-h-screen max-w-[1600px]">
@@ -159,6 +142,17 @@ export function AppLayout() {
               </div>
 
               <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setPaletteOpen(true)}
+                  className="hidden items-center gap-2 rounded-lg bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-card transition-colors hover:text-primary md:flex"
+                >
+                  <Search className="h-3.5 w-3.5" />
+                  Search
+                  <kbd className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-semibold text-placeholder">
+                    Ctrl K
+                  </kbd>
+                </button>
                 <div className="hidden rounded-lg bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-card md:flex md:items-center md:gap-2">
                   <Smartphone className="h-3.5 w-3.5 text-primary" />
                   {isInstalled ? 'Installed PWA' : 'Install available'}

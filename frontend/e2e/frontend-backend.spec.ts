@@ -45,4 +45,12 @@ test('frontend can register, create a monitor, and read generated config from ba
     .filter({ has: page.getByText(email, { exact: true }) })
     .filter({ has: page.getByText('owner', { exact: true }) });
   await expect(memberRow.first()).toBeVisible();
+
+  // командная палитра: Ctrl+K открывает поиск, выбор монитора ведёт на его страницу
+  await page.keyboard.press('ControlOrMeta+k');
+  const paletteInput = page.getByPlaceholder('Search monitors and pages...');
+  await expect(paletteInput).toBeVisible();
+  await paletteInput.fill(monitorName);
+  await page.getByRole('option', { name: new RegExp(monitorName) }).click();
+  await expect(page).toHaveURL(new RegExp(`/monitors/${monitorSlug}`));
 });
