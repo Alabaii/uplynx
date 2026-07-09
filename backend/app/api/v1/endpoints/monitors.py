@@ -26,6 +26,12 @@ from app.services.uptime import collect_uptime_stats
 router = APIRouter()
 
 
+def get_publisher() -> RabbitPublisher:
+    # per-request подключение: pika BlockingConnection не потокобезопасен,
+    # а sync-эндпоинты FastAPI выполняются в пуле потоков
+    return RabbitPublisher()
+
+
 def ssl_days_left(monitor: Monitor) -> int | None:
     if monitor.ssl_expires_at is None:
         return None
