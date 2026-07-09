@@ -1,6 +1,6 @@
 # Производственный образ фронтенда: сборка Vite + раздача статики nginx-ом
 # с проксированием API на backend (same-origin, CORS не нужен).
-FROM node:22-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
