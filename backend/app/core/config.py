@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     scheduler_poll_seconds: int = 5
     # максимум мониторов одной организации в батче шедулера (fair scheduling)
     scheduler_org_batch_limit: int = 200
+    # heartbeat шедулера старше этого — /health/scheduler отдаёт 503 (liveness)
+    scheduler_heartbeat_stale_seconds: int = 30
     check_timeout_seconds: int = 30
     retention_days: int = 365
     browser_concurrency: int = 2

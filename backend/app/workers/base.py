@@ -23,7 +23,7 @@ from app.services.alerting import (
 )
 from app.services.email import email_enabled, send_email
 from app.services.incidents import update_incident_for_status_change
-from app.services.queue import deserialize_task
+from app.services.queue import declare_check_queue, deserialize_task
 from app.services.telegram import send_telegram_message
 from app.services.webpush import PushSubscriptionGone, push_enabled, send_web_push
 
@@ -240,7 +240,7 @@ def consume_forever(queue: str, runner: ResultRunner, reconnect_delay: float = 5
         try:
             connection = pika.BlockingConnection(params)
             channel = connection.channel()
-            channel.queue_declare(queue=queue, durable=True)
+            declare_check_queue(channel, queue)
             channel.basic_qos(prefetch_count=1)
             channel.basic_consume(queue=queue, on_message_callback=callback)
             logger.info("consuming queue %s", queue)
