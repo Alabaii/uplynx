@@ -3,13 +3,14 @@ from sqlalchemy.orm import Session
 
 from app.models import Plan
 
-# Согласованная владельцем сетка (2026-07-09). Дублирует сид миграции 0018:
-# миграция наполняет прод-БД, этот сид — sqlite-тесты и старые томы без повторного апгрейда.
+# Согласованная владельцем сетка (лимиты 2026-07-09; цены в копейках — рублёвый
+# биллинг, 2026-07-10: Free 0 / Pro 990₽ / Business 3990₽). Дублирует сиды миграций
+# 0018+0019: миграции наполняют прод-БД, этот сид — sqlite-тесты и старые томы.
 DEFAULT_PLANS: tuple[dict, ...] = (
     {
         "slug": "free",
         "name": "Free",
-        "price_monthly_cents": 0,
+        "price_monthly_kopeks": 0,
         "annual_discount_pct": 0,
         "max_monitors": 5,
         "min_interval_seconds": 300,
@@ -22,7 +23,7 @@ DEFAULT_PLANS: tuple[dict, ...] = (
     {
         "slug": "pro",
         "name": "Pro",
-        "price_monthly_cents": 1200,
+        "price_monthly_kopeks": 99000,
         "annual_discount_pct": 17,
         "max_monitors": 50,
         "min_interval_seconds": 60,
@@ -35,7 +36,7 @@ DEFAULT_PLANS: tuple[dict, ...] = (
     {
         "slug": "business",
         "name": "Business",
-        "price_monthly_cents": 4500,
+        "price_monthly_kopeks": 399000,
         "annual_discount_pct": 17,
         "max_monitors": 200,
         "min_interval_seconds": 10,

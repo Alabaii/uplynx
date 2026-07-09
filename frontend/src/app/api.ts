@@ -375,7 +375,7 @@ export function getMe() {
 export type Plan = {
   slug: string;
   name: string;
-  price_monthly_cents: number;
+  price_monthly_kopeks: number;
   annual_discount_pct: number;
   max_monitors: number;
   min_interval_seconds: number;
