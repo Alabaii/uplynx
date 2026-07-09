@@ -226,6 +226,11 @@ class CheckResultRead(BaseModel):
     timestamp: datetime
 
 
+class CheckNowRead(BaseModel):
+    queued: bool
+    task_id: str
+
+
 class IncidentRead(BaseModel):
     id: int
     monitor_slug: str

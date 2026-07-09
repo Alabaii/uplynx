@@ -313,6 +313,12 @@ export function createMonitor(payload: {
   });
 }
 
+export function runCheckNow(id: string) {
+  return request<{ queued: boolean; task_id: string }>(`/monitors/${encodeURIComponent(id)}/check`, {
+    method: 'POST',
+  });
+}
+
 export function getConfig() {
   return request<ConfigRead>('/config');
 }
