@@ -1,4 +1,7 @@
-FROM python:3.14-slim
+# 3.12 — как в CI и dev-venv; НЕ бампать без проверки docker build: greenlet==3.1.1
+# (жёсткий пин playwright 1.49) без колёс не компилируется под новые версии Python —
+# dependabot-бамп на 3.14 ломал сборку, а CI образ не собирает и этого не ловит
+FROM python:3.12-slim
 
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
