@@ -1,15 +1,26 @@
 from datetime import datetime, timedelta, timezone
 
+import pika
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import OrgContext, get_current_org_member, require_role
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.models import CheckResult, MaintenanceWindow, Monitor, Organization
-from app.schemas import CheckResultRead, MonitorCreate, MonitorRead, MonitorStatus, MonitorUpdate, MonitorUptimeRead
+from app.schemas import (
+    CheckNowRead,
+    CheckResultRead,
+    MonitorCreate,
+    MonitorRead,
+    MonitorStatus,
+    MonitorUpdate,
+    MonitorUptimeRead,
+)
 from app.services.audit import record
 from app.services.config_sync import create_monitor_from_payload, persist_monitors_as_config, update_monitor_from_payload
+from app.services.queue import RabbitPublisher, task_for_monitor
 from app.services.uptime import collect_uptime_stats
 
 router = APIRouter()
@@ -145,6 +156,42 @@ def update_monitor(
         payload={"changes": sorted(payload.model_dump(exclude_unset=True))},
     )
     return to_monitor_read(update_monitor_from_payload(db, ctx.user, ctx.org, monitor, payload))
+
+
+@router.post("/monitors/{monitor_id}/check", response_model=CheckNowRead, status_code=status.HTTP_202_ACCEPTED)
+def check_monitor_now(
+    monitor_id: str,
+    ctx: OrgContext = Depends(require_role("member")),
+    db: Session = Depends(get_db),
+    publisher: RabbitPublisher = Depends(get_publisher),
+) -> CheckNowRead:
+    monitor = get_org_monitor(db, ctx.org, monitor_id)
+    if not monitor.enabled:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Monitor is disabled")
+    in_maintenance_ids = active_maintenance_monitor_ids(db, ctx.org.id, datetime.now(timezone.utc))
+    if None in in_maintenance_ids or monitor.id in in_maintenance_ids:
+        # внеплановая проверка в окне обслуживания портила бы статистику и будила алерты
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Monitor is in maintenance")
+    task = task_for_monitor(monitor, timeout_seconds=get_settings().check_timeout_seconds)
+    try:
+        publisher.publish(task)
+    except pika.exceptions.AMQPError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Check queue is unavailable"
+        ) from exc
+    finally:
+        publisher.close()
+    record(
+        db,
+        org_id=ctx.org.id,
+        user_id=ctx.user.id,
+        action="monitor.check_now",
+        entity="monitor",
+        entity_id=monitor.slug,
+        payload={"task_id": task.task_id},
+    )
+    db.commit()
+    return CheckNowRead(queued=True, task_id=task.task_id)
 
 
 @router.delete("/monitors/{monitor_id}", status_code=status.HTTP_204_NO_CONTENT)

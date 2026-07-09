@@ -6,6 +6,7 @@ import {
   Clock3,
   FileText,
   Globe,
+  RefreshCw,
   ServerCog,
   Siren,
   Zap,
@@ -18,6 +19,7 @@ import {
   getMonitor,
   getMonitorIncidents,
   getStatusLabel,
+  runCheckNow,
   type CheckResult,
   type Incident,
   type Monitor,
@@ -46,6 +48,8 @@ export default function MonitorDetails() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState('');
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [checkNowState, setCheckNowState] = useState<'idle' | 'queueing' | 'queued'>('idle');
 
   useEffect(() => {
     let ignore = false;
@@ -79,7 +83,23 @@ export default function MonitorDetails() {
     return () => {
       ignore = true;
     };
-  }, [id, range]);
+  }, [id, range, refreshKey]);
+
+  const handleCheckNow = async () => {
+    setCheckNowState('queueing');
+    try {
+      await runCheckNow(id);
+      setCheckNowState('queued');
+      // проверка асинхронная: результат появится после того, как воркер её выполнит
+      setTimeout(() => {
+        setRefreshKey((key) => key + 1);
+        setCheckNowState('idle');
+      }, 4000);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Unable to queue check');
+      setCheckNowState('idle');
+    }
+  };
 
   const chartData = useMemo(
     () =>
@@ -169,6 +189,15 @@ export default function MonitorDetails() {
           </div>
 
           <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={handleCheckNow}
+              disabled={checkNowState !== 'idle' || !monitor.enabled || monitor.in_maintenance}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <RefreshCw className={cn('h-4 w-4', checkNowState === 'queueing' && 'animate-spin')} />
+              {checkNowState === 'queued' ? 'Check queued' : 'Check now'}
+            </button>
             <button
               type="button"
               onClick={() => navigate(`/monitors/${monitor.id}/history`)}
