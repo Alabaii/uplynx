@@ -7,6 +7,10 @@ test('frontend can register, create a monitor, and read generated config from ba
   const monitorName = `E2E API ${unique}`;
   const monitorSlug = monitorName.toLowerCase().replace(/[^a-z0-9_.:-]+/g, '-');
 
+  // интерфейс по умолчанию русский; сценарий написан по английским текстам,
+  // поэтому фиксируем EN до загрузки приложения — заодно проверяется механизм локали
+  await page.addInitScript(() => localStorage.setItem('uplynx.lang', 'en'));
+
   await page.goto('/register');
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password', { exact: true }).fill(password);

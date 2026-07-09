@@ -18,14 +18,13 @@ import {
   getHistory,
   getMonitor,
   getMonitorIncidents,
-  getStatusLabel,
   runCheckNow,
   type CheckResult,
   type Incident,
   type Monitor,
 } from '../api';
 import { cn } from '../utils/cn';
-import { plural, useTexts } from '../i18n';
+import { monitorStatusTexts, plural, useTexts } from '../i18n';
 import { formatDuration, formatRelativeTime } from '../utils/time';
 import {
   Area,
@@ -40,6 +39,7 @@ import {
 const ranges = ['1h', '24h', '7d', '30d'] as const;
 
 export default function MonitorDetails() {
+  const statusLabels = useTexts(monitorStatusTexts);
   const t = useTexts({
     ru: {
       loadErrorFallback: 'Не удалось загрузить монитор',
@@ -326,7 +326,7 @@ export default function MonitorDetails() {
       )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <MetricCard label={t.metricStatus} value={getStatusLabel(monitor.status)} hint={t.metricStatusHint} icon={Zap} />
+        <MetricCard label={t.metricStatus} value={statusLabels[monitor.status]} hint={t.metricStatusHint} icon={Zap} />
         <MetricCard
           label={t.metricUptime}
           value={uptimePct !== null ? `${uptimePct}%` : '—'}

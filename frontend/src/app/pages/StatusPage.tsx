@@ -5,7 +5,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { ApiError, getPublicStatus, type PublicStatus, type PublicStatusOverall } from '../api';
 import { cn } from '../utils/cn';
 import { formatRelativeTime } from '../utils/time';
-import { useTexts } from '../i18n';
+import { LanguageSwitcher, useTexts } from '../i18n';
 
 const REFRESH_INTERVAL_MS = 60_000;
 
@@ -137,6 +137,9 @@ export default function StatusPage() {
 
   return (
     <div className="min-h-screen bg-background px-4 py-10 text-foreground">
+      <div className="fixed right-4 top-4 z-50">
+        <LanguageSwitcher />
+      </div>
       <div className="mx-auto max-w-2xl space-y-6">
         <header className="rounded-lg bg-card p-6 shadow-card">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

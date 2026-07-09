@@ -21,6 +21,15 @@ const LangContext = createContext<{ lang: Lang; setLang: (lang: Lang) => void }>
   setLang: () => {},
 });
 
+// Текущий язык для НЕ-компонентного кода (utils/time.ts): хуки там недоступны.
+// Обновляется провайдером; смена языка перерисовывает всё дерево через контекст,
+// так что функции, читающие activeLang во время рендера, всегда видят актуальное значение.
+let activeLang: Lang = initialLang();
+
+export function getActiveLang(): Lang {
+  return activeLang;
+}
+
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [lang, setLangState] = useState<Lang>(initialLang);
 
@@ -35,6 +44,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     document.documentElement.lang = lang;
+    activeLang = lang;
   }, [lang]);
 
   return <LangContext.Provider value={{ lang, setLang }}>{children}</LangContext.Provider>;
@@ -56,6 +66,12 @@ export function useLang() {
 export function useTexts<T>(texts: { ru: T; en: T }): T {
   return texts[useLang().lang];
 }
+
+/** Подписи статусов монитора — общие для страниц: const labels = useTexts(monitorStatusTexts). */
+export const monitorStatusTexts = {
+  ru: { up: 'Работает', down: 'Недоступен', paused: 'На паузе', degraded: 'Деградация', pending: 'Ожидание' },
+  en: { up: 'Up', down: 'Down', paused: 'Paused', degraded: 'Degraded', pending: 'Pending' },
+};
 
 /** Русские множественные формы: plural(n, ['монитор', 'монитора', 'мониторов']). */
 export function plural(n: number, forms: [string, string, string]): string {
