@@ -13,7 +13,14 @@ from app.core.database import SessionLocal
 from app.core.security import decrypt_secret
 from app.models import CheckResult, Incident, Monitor, Organization, PushSubscription, TelegramIntegration
 from app.schemas import CheckTask
-from app.services.alerting import alert_scope_for_result, build_alert_text, build_renotify_text
+from app.services.alerting import (
+    SSL_ALERT_THRESHOLDS,
+    alert_scope_for_result,
+    build_alert_text,
+    build_renotify_text,
+    build_ssl_alert_text,
+    ssl_threshold_to_alert,
+)
 from app.services.email import email_enabled, send_email
 from app.services.incidents import update_incident_for_status_change
 from app.services.queue import deserialize_task
@@ -105,6 +112,24 @@ async def send_status_alert(monitor: Monitor, check_result: CheckResult, previou
     await broadcast_alert(monitor, scope, build_alert_text(monitor, check_result, scope))
 
 
+def apply_ssl_state(monitor: Monitor, ssl_info: dict | None) -> str | None:
+    """Обновляет ssl-поля монитора; возвращает текст алерта, если пересечён новый порог."""
+    if not ssl_info or not ssl_info.get("expires_at") or ssl_info.get("days_left") is None:
+        return None
+    expires_at = datetime.fromisoformat(ssl_info["expires_at"])
+    days_left = int(ssl_info["days_left"])
+    monitor.ssl_expires_at = expires_at
+    if days_left > max(SSL_ALERT_THRESHOLDS):
+        # сертификат обновили — сбрасываем состояние, чтобы алертить в следующем цикле жизни
+        monitor.ssl_alerted_days = None
+        return None
+    threshold = ssl_threshold_to_alert(days_left, monitor.ssl_alerted_days)
+    if threshold is None:
+        return None
+    monitor.ssl_alerted_days = threshold
+    return build_ssl_alert_text(monitor, days_left, expires_at)
+
+
 def renotify_due(incident: Incident, config_json: dict | None, now: datetime) -> bool:
     """Пора ли слать повторный алерт по открытому инциденту (renotify_interval_minutes)."""
     minutes = (config_json or {}).get("renotify_interval_minutes")
@@ -159,6 +184,7 @@ async def persist_result(task: CheckTask, result: dict) -> None:
         db.add(check_result)
         db.flush()  # текущий результат участвует в серии подтверждений
         monitor.status = resolve_effective_status(db, monitor, result["status"])
+        ssl_alert_text = apply_ssl_state(monitor, (result.get("details") or {}).get("ssl"))
         renotify_text: str | None = None
         if monitor.status != previous_status:
             # эффективная смена статуса — точка открытия/закрытия инцидента (та же транзакция)
@@ -178,6 +204,11 @@ async def persist_result(task: CheckTask, result: dict) -> None:
                 error = result.get("error") or incident.trigger_error
                 renotify_text = build_renotify_text(monitor, monitor.status, error, minutes_down)
         db.commit()
+    if ssl_alert_text:
+        try:
+            await broadcast_alert(monitor, "ssl", ssl_alert_text)
+        except Exception:  # noqa: BLE001
+            logger.exception("failed to send ssl alert for monitor %s", monitor.id)
     if monitor.status == previous_status:
         if renotify_text:
             try:

@@ -86,6 +86,10 @@ class Monitor(Base):
     config_json: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # срок действия TLS-сертификата (обновляется воркером на каждой https-проверке)
+    ssl_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # самый острый порог (в днях), по которому уже отправлен ssl-алерт; NULL — не алертили
+    ssl_alerted_days: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
