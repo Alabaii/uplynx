@@ -85,6 +85,10 @@ class RabbitPublisher:
         self._connection = None
         self._channel = None
 
+    def declare_queue(self, queue: str):  # type: ignore[no-untyped-def]
+        """Идемпотентный declare durable-очереди; в ответе method.message_count — её глубина."""
+        return self._get_channel().queue_declare(queue=queue, durable=True)
+
     def _publish(self, queue: str, body: bytes) -> None:
         channel = self._get_channel()
         declare_check_queue(channel, queue)

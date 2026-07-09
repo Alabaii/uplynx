@@ -1,20 +1,40 @@
+import time
+
 from datetime import datetime, timedelta, timezone
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.v1.router import api_router
 from app.core.config import get_settings, validate_jwt_secret
 from app.core.database import check_database, get_db
+from app.core.observability import HTTP_REQUEST_SECONDS, HTTP_REQUESTS, init_sentry
 from app.models import Monitor, SchedulerHeartbeat
 
 settings = get_settings()
 validate_jwt_secret(settings)
+init_sentry("api")
 
 app = FastAPI(title=settings.app_name)
+
+
+@app.middleware("http")
+async def http_metrics(request: Request, call_next):  # type: ignore[no-untyped-def]
+    started = time.perf_counter()
+    response = await call_next(request)
+    route = request.scope.get("route")
+    # шаблон маршрута ("/api/v1/monitors/{monitor_id}"), не сырой URL — иначе
+    # каждая уникальная строка пути плодит отдельную метрику (cardinality)
+    path = getattr(route, "path", None)
+    if path and path != "/metrics":
+        method = request.method
+        HTTP_REQUESTS.labels(method=method, path=path, status=str(response.status_code)).inc()
+        HTTP_REQUEST_SECONDS.labels(method=method, path=path).observe(time.perf_counter() - started)
+    return response
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
@@ -28,6 +48,12 @@ app.include_router(api_router, prefix="/api/v1")
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/metrics")
+def metrics() -> Response:
+    # в prod недоступен снаружи: nginx проксирует только /api, порт 8000 закрыт
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/ready")

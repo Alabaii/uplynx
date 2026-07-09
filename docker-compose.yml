@@ -49,6 +49,8 @@ services:
       # SSRF-защита: false — мониторы не могут вести во внутреннюю сеть (SaaS);
       # true — разрешить приватные адреса (on-prem мониторинг внутренних сервисов)
       ALLOW_PRIVATE_TARGETS: ${ALLOW_PRIVATE_TARGETS:-false}
+      # Sentry DSN; пусто — отключён
+      SENTRY_DSN: ${SENTRY_DSN:-}
       # VAPID-ключи для web push (сгенерировать: python -m app.tools.vapid); пусто — push отключён
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
@@ -78,6 +80,11 @@ services:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-monitor}:${POSTGRES_PASSWORD:-monitor}@postgres:5432/${POSTGRES_DB:-monitor}
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-change-me}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      METRICS_PORT: "9101"
+    # /metrics только на localhost хоста — наружу не публикуется
+    ports:
+      - "127.0.0.1:9101:9101"
     restart: unless-stopped
     depends_on:
       postgres:
@@ -96,6 +103,8 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-change-me}
       # SSRF-защита: true разрешает мониторить приватные адреса (on-prem)
       ALLOW_PRIVATE_TARGETS: ${ALLOW_PRIVATE_TARGETS:-false}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      METRICS_PORT: "9102"
       # нужен воркерам для расшифровки bot token при отправке алертов
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
       # VAPID-ключи для web push (сгенерировать: python -m app.tools.vapid); пусто — push отключён
@@ -111,6 +120,8 @@ services:
       SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
       # базовый URL приложения для ссылок в письмах
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5173}
+    ports:
+      - "127.0.0.1:9102:9102"
     restart: unless-stopped
     depends_on:
       postgres:
@@ -130,6 +141,8 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-change-me}
       # SSRF-защита: true разрешает мониторить приватные адреса (on-prem)
       ALLOW_PRIVATE_TARGETS: ${ALLOW_PRIVATE_TARGETS:-false}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      METRICS_PORT: "9103"
       # нужен воркерам для расшифровки bot token при отправке алертов
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
       BROWSER_CONCURRENCY: ${BROWSER_CONCURRENCY:-2}
@@ -146,6 +159,8 @@ services:
       SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
       # базовый URL приложения для ссылок в письмах
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5173}
+    ports:
+      - "127.0.0.1:9103:9103"
     restart: unless-stopped
     depends_on:
       postgres:

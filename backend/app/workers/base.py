@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
+from app.core.observability import CHECK_PROCESSING_SECONDS, CHECKS_DEAD_LETTERED, CHECKS_PROCESSED
 from app.core.security import decrypt_secret
 from app.models import CheckResult, Incident, Monitor, Organization, PushSubscription, TelegramIntegration
 from app.schemas import CheckTask
@@ -222,19 +223,32 @@ async def persist_result(task: CheckTask, result: dict) -> None:
         logger.exception("failed to send alert for monitor %s", monitor.id)
 
 
+def process_message(queue: str, runner: ResultRunner, body: bytes) -> bool:
+    """Обрабатывает одно сообщение очереди; False — сбой, сообщение уйдёт в DLQ."""
+    started = time.perf_counter()
+    try:
+        task = deserialize_task(body)
+        result = asyncio.run(runner(task))
+        asyncio.run(persist_result(task, result))
+    except Exception:  # noqa: BLE001
+        logger.exception("failed to process message from queue %s", queue)
+        CHECKS_PROCESSED.labels(queue=queue, result="error").inc()
+        CHECKS_DEAD_LETTERED.labels(queue=queue).inc()
+        return False
+    CHECKS_PROCESSED.labels(queue=queue, result=result.get("status", "unknown")).inc()
+    CHECK_PROCESSING_SECONDS.labels(queue=queue).observe(time.perf_counter() - started)
+    return True
+
+
 def consume_forever(queue: str, runner: ResultRunner, reconnect_delay: float = 5.0) -> None:
     params = pika.URLParameters(get_settings().rabbitmq_url)
 
     def callback(ch, method, _properties, body):  # type: ignore[no-untyped-def]
-        try:
-            task = deserialize_task(body)
-            result = asyncio.run(runner(task))
-            asyncio.run(persist_result(task, result))
-        except Exception:  # noqa: BLE001
-            logger.exception("failed to process message from queue %s", queue)
+        if process_message(queue, runner, body):
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+        else:
+            # requeue=False + dead-letter на очереди → сообщение уходит в DLQ
             ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
-            return
-        ch.basic_ack(delivery_tag=method.delivery_tag)
 
     while True:
         try:
