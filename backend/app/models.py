@@ -56,7 +56,8 @@ class Plan(Base):
 
     slug: Mapped[str] = mapped_column(String(40), primary_key=True)
     name: Mapped[str] = mapped_column(String(80), nullable=False)
-    price_monthly_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    # цена в копейках (рублёвый биллинг: ЮKassa/Robokassa, решение 2026-07-10)
+    price_monthly_kopeks: Mapped[int] = mapped_column(Integer, nullable=False)
     annual_discount_pct: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_monitors: Mapped[int] = mapped_column(Integer, nullable=False)
     min_interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False)

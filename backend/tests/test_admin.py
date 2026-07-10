@@ -54,7 +54,7 @@ def test_plans_seeded_and_sorted(client, superuser_headers):
     plans = response.json()
     assert [plan["slug"] for plan in plans] == ["free", "pro", "business"]
     business = plans[2]
-    assert business["price_monthly_cents"] == 4500
+    assert business["price_monthly_kopeks"] == 399000
     assert business["max_members"] is None
 
 
@@ -63,11 +63,11 @@ def test_plan_update(client, superuser_headers):
     response = client.put(
         "/api/v1/admin/plans/pro",
         headers=superuser_headers,
-        json={"price_monthly_cents": 1500, "max_monitors": 60, "annual_discount_pct": 20},
+        json={"price_monthly_kopeks": 119000, "max_monitors": 60, "annual_discount_pct": 20},
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["price_monthly_cents"] == 1500
+    assert body["price_monthly_kopeks"] == 119000
     assert body["max_monitors"] == 60
     assert body["annual_discount_pct"] == 20
     # не переданные поля не тронуты
@@ -97,13 +97,13 @@ def test_plan_update_validation_and_missing(client, superuser_headers):
     response = client.put(
         "/api/v1/admin/plans/pro",
         headers=superuser_headers,
-        json={"price_monthly_cents": -5},
+        json={"price_monthly_kopeks": -5},
     )
     assert response.status_code == 422
     response = client.put(
         "/api/v1/admin/plans/nope",
         headers=superuser_headers,
-        json={"price_monthly_cents": 100},
+        json={"price_monthly_kopeks": 100},
     )
     assert response.status_code == 404
 
