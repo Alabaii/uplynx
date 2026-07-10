@@ -18,6 +18,10 @@ updates:
     directory: /backend
     schedule:
       interval: weekly
+    ignore:
+      # версия Python меняется осознанно вместе с CI/venv, не автобампом:
+      # бамп 3.12→3.14 сломал сборку (greenlet без колёс под новые версии)
+      - dependency-name: python
 
   - package-ecosystem: docker
     directory: /frontend
