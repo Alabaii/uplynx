@@ -11,7 +11,8 @@ import {
   CommandSeparator,
 } from './ui/command';
 import { listMonitors, type Monitor } from '../api';
-import { navigation } from '../layouts/navigation';
+import { navigation, navLabel } from '../layouts/navigation';
+import { useLang, useTexts } from '../i18n';
 import { cn } from '../utils/cn';
 
 const statusDotClasses: Record<string, string> = {
@@ -29,6 +30,25 @@ export function CommandPalette({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const { lang } = useLang();
+  const t = useTexts({
+    ru: {
+      title: 'Палитра команд',
+      description: 'Поиск мониторов и страниц',
+      placeholder: 'Поиск по мониторам и страницам...',
+      noResults: 'Ничего не найдено.',
+      monitors: 'Мониторы',
+      pages: 'Страницы',
+    },
+    en: {
+      title: 'Command palette',
+      description: 'Search monitors and pages',
+      placeholder: 'Search monitors and pages...',
+      noResults: 'No results found.',
+      monitors: 'Monitors',
+      pages: 'Pages',
+    },
+  });
   const navigate = useNavigate();
   const [monitors, setMonitors] = useState<Monitor[] | null>(null);
 
@@ -73,12 +93,12 @@ export function CommandPalette({
   };
 
   return (
-    <CommandDialog open={open} onOpenChange={onOpenChange} title="Command palette" description="Search monitors and pages">
-      <CommandInput placeholder="Search monitors and pages..." />
+    <CommandDialog open={open} onOpenChange={onOpenChange} title={t.title} description={t.description}>
+      <CommandInput placeholder={t.placeholder} />
       <CommandList>
-        <CommandEmpty>No results found.</CommandEmpty>
+        <CommandEmpty>{t.noResults}</CommandEmpty>
         {monitors !== null && monitors.length > 0 && (
-          <CommandGroup heading="Monitors">
+          <CommandGroup heading={t.monitors}>
             {monitors.map((monitor) => (
               <CommandItem
                 key={monitor.id}
@@ -99,11 +119,11 @@ export function CommandPalette({
           </CommandGroup>
         )}
         <CommandSeparator />
-        <CommandGroup heading="Pages">
+        <CommandGroup heading={t.pages}>
           {navigation.map((item) => (
-            <CommandItem key={item.to} value={`page ${item.label}`} onSelect={() => go(item.to)}>
+            <CommandItem key={item.to} value={`page ${item.label} ${item.labelRu}`} onSelect={() => go(item.to)}>
               <item.icon />
-              {item.label}
+              {navLabel(item, lang)}
             </CommandItem>
           ))}
         </CommandGroup>

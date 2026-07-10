@@ -6,9 +6,10 @@ import { CommandPalette } from '../components/CommandPalette';
 import { EmailVerificationBanner } from '../components/EmailVerificationBanner';
 import { OfflineBanner } from '../components/OfflineBanner';
 import { getMe, logout } from '../api';
+import { LanguageSwitcher, useLang, useTexts } from '../i18n';
 import { useDeploymentMode } from '../meta-context';
 import { OrgSwitcher } from './OrgSwitcher';
-import { navigation } from './navigation';
+import { navLabel, navigation } from './navigation';
 import { usePWA } from '../pwa/usePWA';
 import { cn } from '../utils/cn';
 
@@ -29,6 +30,39 @@ export function AppLayout() {
   const [emailVerified, setEmailVerified] = useState(true);
   const [isSuperuser, setIsSuperuser] = useState(false);
   const isEnterprise = useDeploymentMode() === 'enterprise';
+  const { lang } = useLang();
+  const t = useTexts({
+    ru: {
+      tagline: 'Мониторинг сервисов',
+      activeWorkspace: 'Текущий воркспейс',
+      signedIn: 'Вы вошли',
+      pwaInstalled: 'PWA установлено',
+      browserMode: 'В браузере',
+      signOut: 'Выйти',
+      fleetOverview: 'Обзор мониторов',
+      workspaceFallback: 'Рабочая область',
+      search: 'Поиск',
+      installedPwa: 'PWA установлено',
+      installAvailable: 'Можно установить',
+      operator: 'Оператор',
+      admin: 'Админка',
+    },
+    en: {
+      tagline: 'Monitoring ops',
+      activeWorkspace: 'Active workspace',
+      signedIn: 'Signed in',
+      pwaInstalled: 'PWA installed',
+      browserMode: 'Browser mode',
+      signOut: 'Sign out',
+      fleetOverview: 'Fleet overview',
+      workspaceFallback: 'Monitoring workspace',
+      search: 'Search',
+      installedPwa: 'Installed PWA',
+      installAvailable: 'Install available',
+      operator: 'Operator',
+      admin: 'Admin',
+    },
+  });
 
   useEffect(() => {
     let ignore = false;
@@ -74,7 +108,7 @@ export function AppLayout() {
 
   // /admin виден только суперадмину и только в десктопном сайдбаре:
   // мобильная нижняя навигация фиксирована на 5 пунктах (grid-cols-5)
-  const adminItem = { to: '/admin', label: 'Admin', icon: ShieldCheck };
+  const adminItem = { to: '/admin', label: 'Admin', labelRu: t.admin, icon: ShieldCheck };
   const sidebarNavigation = isSuperuser ? [...navigation, adminItem] : navigation;
 
   const currentSection = sidebarNavigation.find((item) =>
@@ -95,7 +129,7 @@ export function AppLayout() {
             </div>
             <div>
               <p className="text-lg font-semibold text-foreground">Uplynx Console</p>
-              <p className="text-xs text-placeholder">Monitoring ops</p>
+              <p className="text-xs text-placeholder">{t.tagline}</p>
             </div>
           </div>
 
@@ -104,14 +138,14 @@ export function AppLayout() {
               <OrgSwitcher orgName={orgName} currentOrgId={orgId} />
             ) : (
               <>
-                <p className="text-xs text-placeholder">Active workspace</p>
+                <p className="text-xs text-placeholder">{t.activeWorkspace}</p>
                 <p className="mt-1 text-sm font-semibold text-foreground">{orgName}</p>
               </>
             )}
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">{email || 'Signed in'}</p>
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">{email || t.signedIn}</p>
             <div className="mt-3 flex flex-wrap gap-2">
               <span className="rounded-lg bg-accent px-2.5 py-1 text-xs font-semibold text-primary">
-                {isInstalled ? 'PWA installed' : 'Browser mode'}
+                {isInstalled ? t.pwaInstalled : t.browserMode}
               </span>
             </div>
           </div>
@@ -129,7 +163,7 @@ export function AppLayout() {
                 }
               >
                 <item.icon className="h-5 w-5" />
-                {item.label}
+                {navLabel(item, lang)}
               </NavLink>
             ))}
           </nav>
@@ -140,7 +174,7 @@ export function AppLayout() {
             className="mt-auto flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:text-destructive"
           >
             <LogOut className="h-5 w-5" />
-            Sign out
+            {t.signOut}
           </button>
         </aside>
 
@@ -150,33 +184,36 @@ export function AppLayout() {
               <div className="min-w-0">
                 <h1 className="truncate text-lg font-semibold leading-6 text-foreground">
                   {currentSection?.label === 'Dashboard'
-                    ? 'Fleet overview'
-                    : currentSection?.label ?? 'Monitoring workspace'}
+                    ? t.fleetOverview
+                    : currentSection
+                      ? navLabel(currentSection, lang)
+                      : t.workspaceFallback}
                 </h1>
               </div>
 
               <div className="flex items-center gap-3">
+                <LanguageSwitcher />
                 <button
                   type="button"
                   onClick={() => setPaletteOpen(true)}
                   className="hidden items-center gap-2 rounded-lg bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-card transition-colors hover:text-primary md:flex"
                 >
                   <Search className="h-3.5 w-3.5" />
-                  Search
+                  {t.search}
                   <kbd className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-semibold text-placeholder">
                     Ctrl K
                   </kbd>
                 </button>
                 <div className="hidden rounded-lg bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-card md:flex md:items-center md:gap-2">
                   <Smartphone className="h-3.5 w-3.5 text-primary" />
-                  {isInstalled ? 'Installed PWA' : 'Install available'}
+                  {isInstalled ? t.installedPwa : t.installAvailable}
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="flex h-8 w-8 items-center justify-center rounded-full bg-border text-sm font-semibold text-muted-foreground">
                     {(email[0] ?? '?').toUpperCase()}
                   </div>
                   <div className="hidden min-w-0 md:block">
-                    <p className="max-w-[14rem] truncate text-sm leading-5 text-foreground">{email || 'Operator'}</p>
+                    <p className="max-w-[14rem] truncate text-sm leading-5 text-foreground">{email || t.operator}</p>
                     <p className="text-xs leading-4 text-placeholder">{orgName}</p>
                   </div>
                 </div>
@@ -204,7 +241,7 @@ export function AppLayout() {
               }
             >
               <item.icon className="h-4.5 w-4.5" />
-              <span>{item.label}</span>
+              <span>{navLabel(item, lang)}</span>
             </NavLink>
           ))}
         </div>

@@ -7,13 +7,18 @@ import {
   Users,
   Wrench,
 } from 'lucide-react';
+import type { Lang } from '../i18n';
 
 export const navigation = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/incidents', label: 'Incidents', icon: Siren },
-  { to: '/maintenance', label: 'Maintenance', icon: Wrench },
-  { to: '/config', label: 'Config', icon: FileCode2 },
-  { to: '/monitors/new', label: 'New Monitor', icon: PlusCircle },
-  { to: '/team', label: 'Team', icon: Users },
-  { to: '/telegram', label: 'Telegram', icon: Send },
+  { to: '/', label: 'Dashboard', labelRu: 'Дашборд', icon: LayoutDashboard },
+  { to: '/incidents', label: 'Incidents', labelRu: 'Инциденты', icon: Siren },
+  { to: '/maintenance', label: 'Maintenance', labelRu: 'Обслуживание', icon: Wrench },
+  { to: '/config', label: 'Config', labelRu: 'Конфиг', icon: FileCode2 },
+  { to: '/monitors/new', label: 'New Monitor', labelRu: 'Новый монитор', icon: PlusCircle },
+  { to: '/team', label: 'Team', labelRu: 'Команда', icon: Users },
+  { to: '/telegram', label: 'Telegram', labelRu: 'Telegram', icon: Send },
 ];
+
+export function navLabel(item: { label: string; labelRu: string }, lang: Lang): string {
+  return lang === 'ru' ? item.labelRu : item.label;
+}

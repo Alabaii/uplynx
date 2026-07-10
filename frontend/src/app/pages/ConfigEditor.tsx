@@ -4,36 +4,49 @@ import YAML from 'yaml';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { getConfig, listConfigVersions, rollbackConfig, uploadConfig, type ConfigVersion } from '../api';
+import { useTexts } from '../i18n';
 import { cn } from '../utils/cn';
 
-function validateDraft(content: string, format: 'yaml' | 'json'): string[] {
+type ValidationTexts = {
+  parseError: (message: string) => string;
+  notMapping: string;
+  badVersion: string;
+  noMonitorsList: string;
+  monitorNotMapping: (index: number) => string;
+  monitorMissingId: (label: string) => string;
+  monitorBadType: (label: string) => string;
+  httpMonitorNeedsUrl: (label: string) => string;
+  browserMonitorNeedsSteps: (label: string) => string;
+};
+
+function validateDraft(content: string, format: 'yaml' | 'json', t: ValidationTexts): string[] {
   let parsed: unknown;
 
   try {
     parsed = format === 'json' ? JSON.parse(content) : YAML.parse(content);
   } catch (error) {
-    return [`Parse error: ${error instanceof Error ? error.message : String(error)}`];
+    return [t.parseError(error instanceof Error ? error.message : String(error))];
   }
 
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return ['Config must be a mapping with `version` and `monitors` keys.'];
+    return [t.notMapping];
   }
 
   const doc = parsed as Record<string, unknown>;
   const issues: string[] = [];
 
   if (doc.version !== 1) {
-    issues.push('Missing or invalid `version` (expected `version: 1`).');
+    issues.push(t.badVersion);
   }
 
   if (!Array.isArray(doc.monitors)) {
-    issues.push('Config must contain a `monitors` list.');
+    issues.push(t.noMonitorsList);
     return issues;
   }
 
   doc.monitors.forEach((monitor, index) => {
     if (!monitor || typeof monitor !== 'object' || Array.isArray(monitor)) {
-      issues.push(`Monitor #${index + 1} must be a mapping.`);
+      issues.push(t.monitorNotMapping(index + 1));
       return;
     }
 
@@ -41,19 +54,19 @@ function validateDraft(content: string, format: 'yaml' | 'json'): string[] {
     const label = typeof item.id === 'string' && item.id ? `\`${item.id}\`` : `#${index + 1}`;
 
     if (typeof item.id !== 'string' || !item.id) {
-      issues.push(`Monitor ${label} is missing an \`id\`.`);
+      issues.push(t.monitorMissingId(label));
     }
 
     if (item.type !== 'http' && item.type !== 'browser') {
-      issues.push(`Monitor ${label} must declare \`type: http\` or \`type: browser\`.`);
+      issues.push(t.monitorBadType(label));
     }
 
     if (item.type === 'http' && (typeof item.url !== 'string' || !item.url)) {
-      issues.push(`HTTP monitor ${label} requires a \`url\`.`);
+      issues.push(t.httpMonitorNeedsUrl(label));
     }
 
     if (item.type === 'browser' && (!Array.isArray(item.steps) || item.steps.length === 0)) {
-      issues.push(`Browser monitor ${label} requires a non-empty \`steps\` list.`);
+      issues.push(t.browserMonitorNeedsSteps(label));
     }
   });
 
@@ -77,6 +90,77 @@ function getDiffLines(current: string, previous: string) {
 }
 
 export default function ConfigEditor() {
+  const t = useTexts({
+    ru: {
+      parseError: (message: string) => `Ошибка разбора: ${message}`,
+      notMapping: 'Конфиг должен быть маппингом с ключами `version` и `monitors`.',
+      badVersion: 'Отсутствует или неверный `version` (ожидается `version: 1`).',
+      noMonitorsList: 'Конфиг должен содержать список `monitors`.',
+      monitorNotMapping: (index: number) => `Монитор #${index} должен быть маппингом.`,
+      monitorMissingId: (label: string) => `У монитора ${label} отсутствует \`id\`.`,
+      monitorBadType: (label: string) => `Монитор ${label} должен объявлять \`type: http\` или \`type: browser\`.`,
+      httpMonitorNeedsUrl: (label: string) => `HTTP-монитору ${label} требуется \`url\`.`,
+      browserMonitorNeedsSteps: (label: string) => `Browser-монитору ${label} требуется непустой список \`steps\`.`,
+      loadError: 'Не удалось загрузить конфиг',
+      uploaded: (version: number) => `Загружен конфиг v${version}`,
+      uploadError: 'Не удалось загрузить конфиг на сервер',
+      rolledBack: (from: number, savedAs: number) => `Выполнен откат к v${from} (сохранено как v${savedAs})`,
+      rollbackError: 'Не удалось откатить конфиг',
+      kicker: 'Редактор конфига',
+      title: 'Редактирование источника правды',
+      description:
+        'Этот экран рассматривает конфиг как основную панель управления. Загрузка и скачивание подключены к хранилищу на бэкенде.',
+      uploadConfig: 'Загрузить конфиг',
+      downloadLatest: 'Скачать актуальный',
+      validateDraft: 'Проверить черновик',
+      configDraft: 'Черновик конфига',
+      activeVersion: (version: number | string) =>
+        `Активная версия \`v${version}\` из хранилища конфигов на бэкенде`,
+      validation: 'Валидация',
+      runValidationHint: 'Нажмите `Проверить черновик`, чтобы проверить конфиг перед загрузкой.',
+      validationOk: 'Конфиг успешно разобран и соответствует ожидаемой структуре.',
+      diffTitle: 'Отличия черновика от сохранённой версии',
+      noChanges: 'Нет изменений относительно сохранённой версии.',
+      versionHistory: 'История версий',
+      rollback: 'Откат',
+      formatLabel: 'Формат:',
+    },
+    en: {
+      parseError: (message: string) => `Parse error: ${message}`,
+      notMapping: 'Config must be a mapping with `version` and `monitors` keys.',
+      badVersion: 'Missing or invalid `version` (expected `version: 1`).',
+      noMonitorsList: 'Config must contain a `monitors` list.',
+      monitorNotMapping: (index: number) => `Monitor #${index} must be a mapping.`,
+      monitorMissingId: (label: string) => `Monitor ${label} is missing an \`id\`.`,
+      monitorBadType: (label: string) => `Monitor ${label} must declare \`type: http\` or \`type: browser\`.`,
+      httpMonitorNeedsUrl: (label: string) => `HTTP monitor ${label} requires a \`url\`.`,
+      browserMonitorNeedsSteps: (label: string) => `Browser monitor ${label} requires a non-empty \`steps\` list.`,
+      loadError: 'Unable to load config',
+      uploaded: (version: number) => `Uploaded config v${version}`,
+      uploadError: 'Unable to upload config',
+      rolledBack: (from: number, savedAs: number) => `Rolled back to v${from} (saved as v${savedAs})`,
+      rollbackError: 'Unable to roll back config',
+      kicker: 'Config editor',
+      title: 'Edit the source of truth',
+      description:
+        'This screen treats config as the primary control plane. Upload/download flows are connected to backend persistence.',
+      uploadConfig: 'Upload config',
+      downloadLatest: 'Download latest',
+      validateDraft: 'Validate draft',
+      configDraft: 'Config draft',
+      activeVersion: (version: number | string) =>
+        `Active version \`v${version}\` from backend config storage`,
+      validation: 'Validation',
+      runValidationHint: 'Run `Validate draft` to check the config before uploading.',
+      validationOk: 'Config parses correctly and matches the expected structure.',
+      diffTitle: 'Draft diff vs saved version',
+      noChanges: 'No changes from the saved version.',
+      versionHistory: 'Version history',
+      rollback: 'Rollback',
+      formatLabel: 'Format:',
+    },
+  });
+
   const [versions, setVersions] = useState<ConfigVersion[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState<number | null>(null);
   const [content, setContent] = useState('version: 1\nmonitors: []\n');
@@ -102,7 +186,7 @@ export default function ConfigEditor() {
       })
       .catch((error) => {
         if (!ignore) {
-          setError(error instanceof Error ? error.message : 'Unable to load config');
+          setError(error instanceof Error ? error.message : t.loadError);
         }
       });
 
@@ -136,9 +220,9 @@ export default function ConfigEditor() {
       setSavedContent(content);
       setVersions(versionList);
       setSelectedVersionId(version.id);
-      setMessage(`Uploaded config v${version.version}`);
+      setMessage(t.uploaded(version.version));
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Unable to upload config');
+      setError(error instanceof Error ? error.message : t.uploadError);
     }
   };
 
@@ -150,9 +234,9 @@ export default function ConfigEditor() {
       const restored = await rollbackConfig(version.version);
 
       await reloadConfig();
-      setMessage(`Rolled back to v${version.version} (saved as v${restored.version})`);
+      setMessage(t.rolledBack(version.version, restored.version));
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Unable to roll back config');
+      setError(error instanceof Error ? error.message : t.rollbackError);
     }
   };
 
@@ -160,17 +244,17 @@ export default function ConfigEditor() {
     <div className="space-y-6">
       <section className="flex flex-col gap-4 rounded-lg bg-card p-6 shadow-card lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-sm font-semibold text-primary">Config editor</p>
-          <h1 className="mt-2 text-2xl font-semibold leading-8 text-foreground">Edit the source of truth</h1>
+          <p className="text-sm font-semibold text-primary">{t.kicker}</p>
+          <h1 className="mt-2 text-2xl font-semibold leading-8 text-foreground">{t.title}</h1>
           <p className="mt-3 max-w-3xl text-sm leading-5 text-muted-foreground">
-            This screen treats config as the primary control plane. Upload/download flows are connected to backend persistence.
+            {t.description}
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={handleUpload}>
             <Upload className="h-4 w-4" />
-            Upload config
+            {t.uploadConfig}
           </Button>
           <Button
             variant="outline"
@@ -185,11 +269,11 @@ export default function ConfigEditor() {
             }}
           >
             <Download className="h-4 w-4" />
-            Download latest
+            {t.downloadLatest}
           </Button>
-          <Button onClick={() => setValidationIssues(validateDraft(content, format))}>
+          <Button onClick={() => setValidationIssues(validateDraft(content, format, t))}>
             <WandSparkles className="h-4 w-4" />
-            Validate draft
+            {t.validateDraft}
           </Button>
         </div>
       </section>
@@ -201,10 +285,10 @@ export default function ConfigEditor() {
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <FileCode2 className="h-5 w-5 text-primary" />
-                  Config draft
+                  {t.configDraft}
                 </CardTitle>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  Active version `v{selectedVersion?.version ?? 'draft'}` from backend config storage
+                  {t.activeVersion(selectedVersion?.version ?? 'draft')}
                 </p>
               </div>
 
@@ -245,7 +329,7 @@ export default function ConfigEditor() {
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Validation</CardTitle>
+              <CardTitle>{t.validation}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               {message && (
@@ -260,11 +344,11 @@ export default function ConfigEditor() {
               )}
               {validationIssues === null ? (
                 <div className="rounded-lg bg-secondary p-4 text-sm text-muted-foreground">
-                  Run `Validate draft` to check the config before uploading.
+                  {t.runValidationHint}
                 </div>
               ) : validationIssues.length === 0 ? (
                 <div className="rounded-lg bg-accent p-4 text-sm text-accent-foreground">
-                  Config parses correctly and matches the expected structure.
+                  {t.validationOk}
                 </div>
               ) : (
                 validationIssues.map((issue) => (
@@ -280,13 +364,13 @@ export default function ConfigEditor() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <FileDiff className="h-4 w-4 text-primary" />
-                Draft diff vs saved version
+                {t.diffTitle}
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="rounded-lg bg-secondary p-4 font-mono text-xs leading-6 text-foreground">
                 {diffLines.length === 0 ? (
-                  <span className="text-placeholder">No changes from the saved version.</span>
+                  <span className="text-placeholder">{t.noChanges}</span>
                 ) : (
                   diffLines.map((line, index) => (
                     <div
@@ -308,7 +392,7 @@ export default function ConfigEditor() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <History className="h-4 w-4 text-primary" />
-                Version history
+                {t.versionHistory}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -334,10 +418,10 @@ export default function ConfigEditor() {
                       onClick={() => handleRollback(version)}
                     >
                       <RotateCcw className="h-3.5 w-3.5" />
-                      Rollback
+                      {t.rollback}
                     </Button>
                   </div>
-                  <p className="mt-3 text-sm text-muted-foreground">Format: {version.format}</p>
+                  <p className="mt-3 text-sm text-muted-foreground">{t.formatLabel} {version.format}</p>
                 </div>
               ))}
             </CardContent>

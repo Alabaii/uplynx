@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { ApiError, createMonitor, type MonitorType } from '../api';
 import { Input } from '../components/ui/Input';
 import { cn } from '../utils/cn';
+import { useTexts } from '../i18n';
 
 type BrowserStepAction = 'goto' | 'click' | 'type' | 'assert_text' | 'wait_for' | 'assert_url';
 
@@ -20,19 +21,6 @@ type BuilderStep = {
   contains?: string;
 };
 
-const starterSteps: BuilderStep[] = [
-  { id: 'draft-1', action: 'goto', label: 'Open page', url: 'https://example.com' },
-];
-
-const stepLabels: Record<BrowserStepAction, string> = {
-  goto: 'Open page',
-  click: 'Click target',
-  type: 'Type text',
-  assert_text: 'Assert text',
-  wait_for: 'Wait for element',
-  assert_url: 'Assert URL',
-};
-
 const stepIcons: Record<BrowserStepAction, typeof Globe> = {
   goto: Globe,
   click: MousePointerClick,
@@ -43,15 +31,104 @@ const stepIcons: Record<BrowserStepAction, typeof Globe> = {
 };
 
 export default function AddMonitor() {
+  const t = useTexts({
+    ru: {
+      newMonitor: 'Новый монитор',
+      title: 'Собирайте в UI — конфиг всегда актуален',
+      builderTitle: 'Конструктор мониторов',
+      builderDescription:
+        'Опишите быструю HTTP-проверку или полный браузерный сценарий. Сохранение также обновляет версию конфига.',
+      typeHttp: 'HTTP',
+      typeBrowser: 'Браузер',
+      monitorName: 'Название монитора',
+      monitorNamePlaceholder: 'Здоровье продакшен-API',
+      targetUrl: 'Целевой URL',
+      intervalSeconds: 'Интервал (секунды)',
+      confirmationsLabel: 'Подтверждения (статус меняется после N проверок подряд)',
+      renotifyLabel: 'Повторный алерт каждые N минут, пока монитор недоступен (0 = выкл)',
+      expectedStatus: 'Ожидаемый статус',
+      bodyContains: 'Тело ответа содержит',
+      degradedAbove: 'Деградация свыше (мс)',
+      scenarioBuilder: 'Конструктор сценария',
+      supportedActions: 'Поддерживаемые действия: `goto`, `click`, `type`, `assert_text`, `wait_for`, `assert_url`.',
+      stepLabels: {
+        goto: 'Открыть страницу',
+        click: 'Кликнуть по элементу',
+        type: 'Ввести текст',
+        assert_text: 'Проверить текст',
+        wait_for: 'Дождаться элемента',
+        assert_url: 'Проверить URL',
+      } as Record<BrowserStepAction, string>,
+      stepNumber: (n: number) => `Шаг ${n}`,
+      remove: 'Удалить',
+      stepLabel: 'Название шага',
+      url: 'URL',
+      selector: 'Селектор',
+      value: 'Значение',
+      urlContains: 'URL содержит',
+      expectedText: 'Ожидаемый текст',
+      selectorOptional: 'Селектор (необязательно)',
+      savingNote: 'Сохранение вызывает API мониторов на бэкенде и обновляет сгенерированную версию конфига.',
+      saveError: 'Не удалось сохранить монитор',
+      cancel: 'Отмена',
+      saveHttp: 'Сохранить HTTP-монитор',
+      saveBrowser: 'Сохранить браузерный монитор',
+    },
+    en: {
+      newMonitor: 'New monitor',
+      title: 'Build from UI, keep config-ready',
+      builderTitle: 'Monitor builder',
+      builderDescription:
+        'Model either a fast HTTP probe or a full browser scenario. Saving updates the config version too.',
+      typeHttp: 'HTTP',
+      typeBrowser: 'Browser',
+      monitorName: 'Monitor name',
+      monitorNamePlaceholder: 'Production API health',
+      targetUrl: 'Target URL',
+      intervalSeconds: 'Interval (seconds)',
+      confirmationsLabel: 'Confirmations (status changes after N consecutive checks)',
+      renotifyLabel: 'Re-alert every N minutes while down (0 = off)',
+      expectedStatus: 'Expected status',
+      bodyContains: 'Body contains',
+      degradedAbove: 'Degraded above (ms)',
+      scenarioBuilder: 'Scenario builder',
+      supportedActions: 'Supported actions: `goto`, `click`, `type`, `assert_text`, `wait_for`, `assert_url`.',
+      stepLabels: {
+        goto: 'Open page',
+        click: 'Click target',
+        type: 'Type text',
+        assert_text: 'Assert text',
+        wait_for: 'Wait for element',
+        assert_url: 'Assert URL',
+      } as Record<BrowserStepAction, string>,
+      stepNumber: (n: number) => `Step ${n}`,
+      remove: 'Remove',
+      stepLabel: 'Step label',
+      url: 'URL',
+      selector: 'Selector',
+      value: 'Value',
+      urlContains: 'URL contains',
+      expectedText: 'Expected text',
+      selectorOptional: 'Selector (optional)',
+      savingNote: 'Saving calls the backend monitor API and updates the generated config version.',
+      saveError: 'Unable to save monitor',
+      cancel: 'Cancel',
+      saveHttp: 'Save HTTP monitor',
+      saveBrowser: 'Save browser monitor',
+    },
+  });
+  const stepLabels = t.stepLabels;
   const navigate = useNavigate();
   const [monitorType, setMonitorType] = useState<MonitorType>('http');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
-  const [steps, setSteps] = useState<BuilderStep[]>(starterSteps);
+  const [steps, setSteps] = useState<BuilderStep[]>(() => [
+    { id: 'draft-1', action: 'goto', label: stepLabels.goto, url: 'https://example.com' },
+  ]);
 
   const submitCopy = useMemo(
-    () => (monitorType === 'http' ? 'Save HTTP monitor' : 'Save browser monitor'),
-    [monitorType]
+    () => (monitorType === 'http' ? t.saveHttp : t.saveBrowser),
+    [monitorType, t.saveHttp, t.saveBrowser]
   );
 
   const addStep = (action: BrowserStepAction) => {
@@ -128,7 +205,7 @@ export default function AddMonitor() {
       });
       navigate('/');
     } catch (error) {
-      setError(error instanceof ApiError ? error.message : 'Unable to save monitor');
+      setError(error instanceof ApiError ? error.message : t.saveError);
     } finally {
       setIsSaving(false);
     }
@@ -141,8 +218,8 @@ export default function AddMonitor() {
           <ChevronLeft className="h-5 w-5" />
         </Link>
         <div>
-          <p className="text-sm font-semibold text-primary">New monitor</p>
-          <h1 className="text-2xl font-semibold leading-8 text-foreground">Build from UI, keep config-ready</h1>
+          <p className="text-sm font-semibold text-primary">{t.newMonitor}</p>
+          <h1 className="text-2xl font-semibold leading-8 text-foreground">{t.title}</h1>
         </div>
       </div>
 
@@ -150,17 +227,17 @@ export default function AddMonitor() {
         <CardHeader className="border-b border-border">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <CardTitle>Monitor builder</CardTitle>
+              <CardTitle>{t.builderTitle}</CardTitle>
               <p className="mt-2 text-sm text-muted-foreground">
-                Model either a fast HTTP probe or a full browser scenario. Saving updates the config version too.
+                {t.builderDescription}
               </p>
             </div>
             <div className="flex rounded-xl bg-secondary p-1">
               <TypeToggle active={monitorType === 'http'} onClick={() => setMonitorType('http')}>
-                HTTP
+                {t.typeHttp}
               </TypeToggle>
               <TypeToggle active={monitorType === 'browser'} onClick={() => setMonitorType('browser')}>
-                Browser
+                {t.typeBrowser}
               </TypeToggle>
             </div>
           </div>
@@ -169,11 +246,11 @@ export default function AddMonitor() {
         <CardContent className="p-6">
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid gap-4 md:grid-cols-2">
-              <Input label="Monitor name" name="name" placeholder="Production API health" required />
-              <Input label="Target URL" name="url" placeholder="https://api.example.com/health" required />
-              <Input label="Interval (seconds)" name="interval" type="number" min={10} defaultValue={monitorType === 'http' ? 60 : 300} required />
+              <Input label={t.monitorName} name="name" placeholder={t.monitorNamePlaceholder} required />
+              <Input label={t.targetUrl} name="url" placeholder="https://api.example.com/health" required />
+              <Input label={t.intervalSeconds} name="interval" type="number" min={10} defaultValue={monitorType === 'http' ? 60 : 300} required />
               <Input
-                label="Confirmations (status changes after N consecutive checks)"
+                label={t.confirmationsLabel}
                 name="confirmations"
                 type="number"
                 min={1}
@@ -181,7 +258,7 @@ export default function AddMonitor() {
                 defaultValue={1}
               />
               <Input
-                label="Re-alert every N minutes while down (0 = off)"
+                label={t.renotifyLabel}
                 name="renotifyMinutes"
                 type="number"
                 min={0}
@@ -192,18 +269,18 @@ export default function AddMonitor() {
 
             {monitorType === 'http' ? (
               <div className="grid gap-4 lg:grid-cols-2">
-                <Input label="Expected status" name="expectedStatus" type="number" placeholder="200" defaultValue="200" required />
-                <Input label="Body contains" name="bodyContains" placeholder="ok" defaultValue="ok" />
-                <Input label="Degraded above (ms)" name="responseTimeMs" type="number" min={1} placeholder="1500" />
+                <Input label={t.expectedStatus} name="expectedStatus" type="number" placeholder="200" defaultValue="200" required />
+                <Input label={t.bodyContains} name="bodyContains" placeholder="ok" defaultValue="ok" />
+                <Input label={t.degradedAbove} name="responseTimeMs" type="number" min={1} placeholder="1500" />
               </div>
             ) : (
               <div className="space-y-5">
                 <div className="rounded-lg bg-secondary p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-base font-medium leading-6 text-foreground">Scenario builder</h3>
+                      <h3 className="text-base font-medium leading-6 text-foreground">{t.scenarioBuilder}</h3>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        Supported actions: `goto`, `click`, `type`, `assert_text`, `wait_for`, `assert_url`.
+                        {t.supportedActions}
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -240,7 +317,7 @@ export default function AddMonitor() {
                               <Icon className="h-5 w-5" />
                             </div>
                             <div>
-                              <p className="text-sm font-semibold text-foreground">Step {index + 1}</p>
+                              <p className="text-sm font-semibold text-foreground">{t.stepNumber(index + 1)}</p>
                               <p className="text-sm text-placeholder">{step.action}</p>
                             </div>
                           </div>
@@ -251,21 +328,21 @@ export default function AddMonitor() {
                               onClick={() => removeStep(step.id)}
                               className="text-sm font-medium text-destructive hover:text-destructive/80"
                             >
-                              Remove
+                              {t.remove}
                             </button>
                           )}
                         </div>
 
                         <div className="mt-4 grid gap-4 md:grid-cols-2">
                           <Input
-                            label="Step label"
+                            label={t.stepLabel}
                             value={step.label}
                             onChange={(event) => updateStep(step.id, 'label', event.target.value)}
                             required
                           />
                           {step.action === 'goto' && (
                             <Input
-                              label="URL"
+                              label={t.url}
                               value={step.url}
                               onChange={(event) => updateStep(step.id, 'url', event.target.value)}
                               required
@@ -273,7 +350,7 @@ export default function AddMonitor() {
                           )}
                           {step.action === 'click' && (
                             <Input
-                              label="Selector"
+                              label={t.selector}
                               value={step.selector}
                               onChange={(event) => updateStep(step.id, 'selector', event.target.value)}
                               required
@@ -282,13 +359,13 @@ export default function AddMonitor() {
                           {step.action === 'type' && (
                             <>
                               <Input
-                                label="Selector"
+                                label={t.selector}
                                 value={step.selector}
                                 onChange={(event) => updateStep(step.id, 'selector', event.target.value)}
                                 required
                               />
                               <Input
-                                label="Value"
+                                label={t.value}
                                 value={step.value}
                                 onChange={(event) => updateStep(step.id, 'value', event.target.value)}
                                 required
@@ -297,7 +374,7 @@ export default function AddMonitor() {
                           )}
                           {step.action === 'wait_for' && (
                             <Input
-                              label="Selector"
+                              label={t.selector}
                               value={step.selector}
                               onChange={(event) => updateStep(step.id, 'selector', event.target.value)}
                               required
@@ -305,7 +382,7 @@ export default function AddMonitor() {
                           )}
                           {step.action === 'assert_url' && (
                             <Input
-                              label="URL contains"
+                              label={t.urlContains}
                               value={step.contains}
                               onChange={(event) => updateStep(step.id, 'contains', event.target.value)}
                               required
@@ -314,13 +391,13 @@ export default function AddMonitor() {
                           {step.action === 'assert_text' && (
                             <>
                               <Input
-                                label="Expected text"
+                                label={t.expectedText}
                                 value={step.expectedText}
                                 onChange={(event) => updateStep(step.id, 'expectedText', event.target.value)}
                                 required
                               />
                               <Input
-                                label="Selector (optional)"
+                                label={t.selectorOptional}
                                 value={step.selector}
                                 onChange={(event) => updateStep(step.id, 'selector', event.target.value)}
                               />
@@ -337,7 +414,7 @@ export default function AddMonitor() {
             <div className="rounded-lg bg-accent px-4 py-4 text-sm text-accent-foreground">
               <div className="flex items-start gap-3">
                 <WandSparkles className="mt-0.5 h-4 w-4 shrink-0" />
-                Saving calls the backend monitor API and updates the generated config version.
+                {t.savingNote}
               </div>
             </div>
 
@@ -349,7 +426,7 @@ export default function AddMonitor() {
 
             <div className="flex flex-col gap-3 border-t border-border pt-5 sm:flex-row sm:justify-end">
               <Button type="button" variant="ghost" onClick={() => navigate(-1)}>
-                Cancel
+                {t.cancel}
               </Button>
               <Button type="submit" isLoading={isSaving}>
                 <Save className="h-4 w-4" />

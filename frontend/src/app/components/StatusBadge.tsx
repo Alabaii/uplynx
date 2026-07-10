@@ -1,6 +1,7 @@
 import { AlertTriangle, CheckCircle2, CircleDashed, PauseCircle, XCircle } from 'lucide-react';
 import { cn } from '../utils/cn';
-import { getStatusLabel, type MonitorStatus } from '../api';
+import { type MonitorStatus } from '../api';
+import { useTexts } from '../i18n';
 
 const toneClasses: Record<MonitorStatus, string> = {
   up: 'bg-accent text-status-up',
@@ -25,6 +26,26 @@ export function StatusBadge({
   status: MonitorStatus;
   className?: string;
 }) {
+  const t = useTexts({
+    ru: {
+      labels: {
+        up: 'Работает',
+        down: 'Недоступен',
+        paused: 'На паузе',
+        degraded: 'Деградация',
+        pending: 'Ожидание',
+      } as Record<MonitorStatus, string>,
+    },
+    en: {
+      labels: {
+        up: 'Up',
+        down: 'Down',
+        paused: 'Paused',
+        degraded: 'Degraded',
+        pending: 'Pending',
+      } as Record<MonitorStatus, string>,
+    },
+  });
   const Icon = toneIcons[status];
 
   return (
@@ -36,7 +57,7 @@ export function StatusBadge({
       )}
     >
       <Icon className="h-3.5 w-3.5" />
-      {getStatusLabel(status)}
+      {t.labels[status]}
     </span>
   );
 }

@@ -7,17 +7,80 @@ import { ApiError, connectTelegram, getMe, getTelegram, listOrgs, testTelegram, 
 import { useMeta } from '../meta-context';
 import { usePushNotifications, type PushStatus } from '../pwa/usePushNotifications';
 import { cn } from '../utils/cn';
+import { useTexts } from '../i18n';
 
-const alertScopes = [
-  { id: 'down', label: 'Down', description: 'Critical failures and timeouts' },
-  { id: 'degraded', label: 'Degraded', description: 'Slow but not fully broken checks' },
-  { id: 'recovered', label: 'Recovered', description: 'Follow-up signal when status returns to green' },
-  { id: 'ssl', label: 'SSL expiry', description: 'TLS certificate expires in 30/14/7/1 days' },
-] as const;
+const alertScopeIds = ['down', 'degraded', 'recovered', 'ssl'] as const;
 
-type AlertScope = (typeof alertScopes)[number]['id'];
+type AlertScope = (typeof alertScopeIds)[number];
 
 export default function TelegramSettings() {
+  const t = useTexts({
+    ru: {
+      integration: 'Интеграция с Telegram',
+      title: 'Доставляйте инциденты операторам',
+      description: 'Подключите Telegram-бота, чтобы получать алерты, когда мониторы падают, деградируют или восстанавливаются.',
+      connectedToChat: (chat: string) => `Подключено к чату ${chat || 'неизвестно'}`,
+      notConnected: 'Ещё не подключено',
+      configureBot: 'Настройка бота',
+      botToken: 'Токен бота',
+      chatId: 'ID чата',
+      alertScope: 'Область алертов',
+      scopes: {
+        down: { label: 'Падение', description: 'Критические сбои и таймауты' },
+        degraded: { label: 'Деградация', description: 'Медленные, но не полностью сломанные проверки' },
+        recovered: { label: 'Восстановление', description: 'Сигнал, когда статус возвращается в зелёную зону' },
+        ssl: { label: 'SSL', description: 'TLS-сертификат истекает через 30/14/7/1 дней' },
+      },
+      saved: 'Настройки Telegram сохранены.',
+      saveError: 'Не удалось сохранить настройки Telegram.',
+      testSent: 'Тестовый алерт отправлен. Проверьте чат в Telegram.',
+      testError: 'Не удалось отправить тестовое сообщение.',
+      testConnection: 'Проверить подключение',
+      saveSettings: 'Сохранить настройки',
+      deliveryPreview: 'Предпросмотр доставки',
+      sampleMessage: 'Пример сообщения',
+      sampleText: '`DOWN` Монитор `api-health` упал: HTTP 500 после 3 повторов.',
+      currentScopes: 'Текущие области',
+      noAlertsSelected: 'Алерты не выбраны',
+      platformNotes: 'Заметки о платформе',
+      noteChannels: 'Браузерный push и Telegram — независимые каналы: включите любой из них или оба.',
+      noteIos: 'Web-push на iOS требует iOS 16.4+ и установленного на домашний экран приложения, даже если Telegram настроен.',
+    },
+    en: {
+      integration: 'Telegram integration',
+      title: 'Route incidents to operators',
+      description: 'Connect a Telegram bot to receive alerts when monitors go down, degrade, or recover.',
+      connectedToChat: (chat: string) => `Connected to chat ${chat || 'unknown'}`,
+      notConnected: 'Not connected yet',
+      configureBot: 'Configure bot',
+      botToken: 'Bot token',
+      chatId: 'Chat ID',
+      alertScope: 'Alert scope',
+      scopes: {
+        down: { label: 'Down', description: 'Critical failures and timeouts' },
+        degraded: { label: 'Degraded', description: 'Slow but not fully broken checks' },
+        recovered: { label: 'Recovered', description: 'Follow-up signal when status returns to green' },
+        ssl: { label: 'SSL expiry', description: 'TLS certificate expires in 30/14/7/1 days' },
+      },
+      saved: 'Telegram settings saved.',
+      saveError: 'Unable to save Telegram settings.',
+      testSent: 'Test alert sent. Check your Telegram chat.',
+      testError: 'Unable to send a test message.',
+      testConnection: 'Test connection',
+      saveSettings: 'Save settings',
+      deliveryPreview: 'Delivery preview',
+      sampleMessage: 'Sample message',
+      sampleText: '`DOWN` Monitor `api-health` failed: HTTP 500 after 3 retries.',
+      currentScopes: 'Current scopes',
+      noAlertsSelected: 'No alerts selected',
+      platformNotes: 'Platform notes',
+      noteChannels: 'Browser push and Telegram are independent channels - enable either or both.',
+      noteIos: 'iOS web push requires iOS 16.4+ and an installed Home Screen app, even when Telegram is configured.',
+    },
+  });
+
+  const alertScopes = alertScopeIds.map((id) => ({ id, ...t.scopes[id] }));
+
   const [connected, setConnected] = useState(false);
   const [maskedToken, setMaskedToken] = useState('');
   const [token, setToken] = useState('');
@@ -36,7 +99,7 @@ export default function TelegramSettings() {
           setConnected(true);
           setChatId(integration.chat_id ?? '');
           setSelectedAlerts(integration.alert_scopes.filter((scope): scope is AlertScope =>
-            alertScopes.some((item) => item.id === scope)
+            alertScopeIds.some((id) => id === scope)
           ));
           setMaskedToken(integration.bot_token_masked ?? '');
         }
@@ -67,11 +130,11 @@ export default function TelegramSettings() {
       setChatId(integration.chat_id ?? chatId);
       setToken('');
       setMaskedToken(integration.bot_token_masked ?? '');
-      setMessage({ tone: 'success', text: 'Telegram settings saved.' });
+      setMessage({ tone: 'success', text: t.saved });
     } catch (error) {
       setMessage({
         tone: 'error',
-        text: error instanceof ApiError ? error.message : 'Unable to save Telegram settings.',
+        text: error instanceof ApiError ? error.message : t.saveError,
       });
     } finally {
       setIsSaving(false);
@@ -86,13 +149,13 @@ export default function TelegramSettings() {
       const result = await testTelegram();
       setMessage(
         result.ok
-          ? { tone: 'success', text: 'Test alert sent. Check your Telegram chat.' }
+          ? { tone: 'success', text: t.testSent }
           : { tone: 'error', text: result.detail }
       );
     } catch (error) {
       setMessage({
         tone: 'error',
-        text: error instanceof ApiError ? error.message : 'Unable to send a test message.',
+        text: error instanceof ApiError ? error.message : t.testError,
       });
     } finally {
       setIsTesting(false);
@@ -104,20 +167,20 @@ export default function TelegramSettings() {
       <section className="rounded-lg bg-card p-6 shadow-card">
         <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
           <div>
-            <p className="text-sm font-semibold text-primary">Telegram integration</p>
-            <h1 className="mt-2 text-2xl font-semibold leading-8 text-foreground">Route incidents to operators</h1>
+            <p className="text-sm font-semibold text-primary">{t.integration}</p>
+            <h1 className="mt-2 text-2xl font-semibold leading-8 text-foreground">{t.title}</h1>
             <p className="mt-3 max-w-3xl text-sm leading-5 text-muted-foreground">
-              Connect a Telegram bot to receive alerts when monitors go down, degrade, or recover.
+              {t.description}
             </p>
           </div>
 
           {connected ? (
             <div className="rounded-lg bg-accent px-4 py-3 text-sm text-accent-foreground">
-              Connected to chat {chatId || 'unknown'}
+              {t.connectedToChat(chatId)}
             </div>
           ) : (
             <div className="rounded-lg bg-secondary px-4 py-3 text-sm text-muted-foreground">
-              Not connected yet
+              {t.notConnected}
             </div>
           )}
         </div>
@@ -128,7 +191,7 @@ export default function TelegramSettings() {
           <CardHeader className="border-b border-border">
             <CardTitle className="flex items-center gap-2">
               <Send className="h-5 w-5 text-primary" />
-              Configure bot
+              {t.configureBot}
             </CardTitle>
           </CardHeader>
 
@@ -136,7 +199,7 @@ export default function TelegramSettings() {
             <form onSubmit={handleSave} className="space-y-6">
               <div className="grid gap-4">
                 <Input
-                  label="Bot token"
+                  label={t.botToken}
                   type="password"
                   value={token}
                   onChange={(event) => setToken(event.target.value)}
@@ -144,7 +207,7 @@ export default function TelegramSettings() {
                   required
                 />
                 <Input
-                  label="Chat ID"
+                  label={t.chatId}
                   value={chatId}
                   onChange={(event) => setChatId(event.target.value)}
                   placeholder="-1001234567890"
@@ -153,7 +216,7 @@ export default function TelegramSettings() {
               </div>
 
               <div className="space-y-3">
-                <p className="text-sm font-semibold text-foreground">Alert scope</p>
+                <p className="text-sm font-semibold text-foreground">{t.alertScope}</p>
                 <div className="grid gap-3 md:grid-cols-3">
                   {alertScopes.map((scope) => {
                     const active = selectedAlerts.includes(scope.id);
@@ -200,11 +263,11 @@ export default function TelegramSettings() {
                   isLoading={isTesting}
                   disabled={!connected}
                 >
-                  Test connection
+                  {t.testConnection}
                 </Button>
                 <Button type="submit" isLoading={isSaving}>
                   <Send className="h-4 w-4" />
-                  Save settings
+                  {t.saveSettings}
                 </Button>
               </div>
             </form>
@@ -216,19 +279,19 @@ export default function TelegramSettings() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Bot className="h-5 w-5 text-primary" />
-                Delivery preview
+                {t.deliveryPreview}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 text-sm text-muted-foreground">
               <div className="rounded-lg bg-secondary p-4">
-                <p className="font-semibold text-foreground">Sample message</p>
+                <p className="font-semibold text-foreground">{t.sampleMessage}</p>
                 <p className="mt-3 text-sm leading-5">
-                  `DOWN` Monitor `api-health` failed: HTTP 500 after 3 retries.
+                  {t.sampleText}
                 </p>
               </div>
               <div className="rounded-lg bg-secondary p-4">
-                <p className="font-semibold text-foreground">Current scopes</p>
-                <p className="mt-3">{selectedAlerts.join(', ') || 'No alerts selected'}</p>
+                <p className="font-semibold text-foreground">{t.currentScopes}</p>
+                <p className="mt-3">{selectedAlerts.join(', ') || t.noAlertsSelected}</p>
               </div>
             </CardContent>
           </Card>
@@ -241,12 +304,12 @@ export default function TelegramSettings() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <BellRing className="h-5 w-5 text-primary" />
-                Platform notes
+                {t.platformNotes}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm leading-5 text-muted-foreground">
-              <InfoRow icon={Smartphone} text="Browser push and Telegram are independent channels - enable either or both." />
-              <InfoRow icon={TriangleAlert} text="iOS web push requires iOS 16.4+ and an installed Home Screen app, even when Telegram is configured." />
+              <InfoRow icon={Smartphone} text={t.noteChannels} />
+              <InfoRow icon={TriangleAlert} text={t.noteIos} />
             </CardContent>
           </Card>
         </div>
@@ -255,16 +318,46 @@ export default function TelegramSettings() {
   );
 }
 
-const pushStatusText: Record<PushStatus, string> = {
-  loading: 'Checking browser support...',
-  unsupported: 'Push requires the installed PWA (production build). Open the app from your home screen to enable it.',
-  'disabled-on-server': 'Push is not configured on this server. Ask an administrator to set VAPID keys.',
-  'permission-denied': 'Notifications are blocked for this site. Allow them in the browser settings and reload.',
-  subscribed: 'This device receives push alerts when monitors change status.',
-  'not-subscribed': 'This device is not subscribed yet. Enable push to get alerts even when the app is closed.',
-};
-
 function BrowserPushCard() {
+  const t = useTexts({
+    ru: {
+      browserPush: 'Браузерный push',
+      status: 'Статус',
+      enabledOnDevice: 'Включено на этом устройстве',
+      notActive: 'Не активно',
+      on: 'Вкл',
+      off: 'Выкл',
+      statusText: {
+        loading: 'Проверяем поддержку браузера...',
+        unsupported: 'Для push нужно установленное PWA (production-сборка). Откройте приложение с домашнего экрана, чтобы включить его.',
+        'disabled-on-server': 'Push не настроен на этом сервере. Попросите администратора задать VAPID-ключи.',
+        'permission-denied': 'Уведомления для этого сайта заблокированы. Разрешите их в настройках браузера и перезагрузите страницу.',
+        subscribed: 'Это устройство получает push-алерты при смене статуса мониторов.',
+        'not-subscribed': 'Это устройство ещё не подписано. Включите push, чтобы получать алерты, даже когда приложение закрыто.',
+      } as Record<PushStatus, string>,
+      disablePush: 'Отключить push',
+      enablePush: 'Включить push',
+    },
+    en: {
+      browserPush: 'Browser push',
+      status: 'Status',
+      enabledOnDevice: 'Enabled on this device',
+      notActive: 'Not active',
+      on: 'On',
+      off: 'Off',
+      statusText: {
+        loading: 'Checking browser support...',
+        unsupported: 'Push requires the installed PWA (production build). Open the app from your home screen to enable it.',
+        'disabled-on-server': 'Push is not configured on this server. Ask an administrator to set VAPID keys.',
+        'permission-denied': 'Notifications are blocked for this site. Allow them in the browser settings and reload.',
+        subscribed: 'This device receives push alerts when monitors change status.',
+        'not-subscribed': 'This device is not subscribed yet. Enable push to get alerts even when the app is closed.',
+      } as Record<PushStatus, string>,
+      disablePush: 'Disable push',
+      enablePush: 'Enable push',
+    },
+  });
+
   const { status, isBusy, error, enable, disable } = usePushNotifications();
   const canToggle = status === 'subscribed' || status === 'not-subscribed';
 
@@ -273,14 +366,14 @@ function BrowserPushCard() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Bell className="h-5 w-5 text-primary" />
-          Browser push
+          {t.browserPush}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4 text-sm leading-5 text-muted-foreground">
         <div className="flex items-center justify-between gap-3 rounded-lg bg-secondary p-4">
           <div>
-            <p className="font-semibold text-foreground">Status</p>
-            <p className="mt-1">{status === 'subscribed' ? 'Enabled on this device' : 'Not active'}</p>
+            <p className="font-semibold text-foreground">{t.status}</p>
+            <p className="mt-1">{status === 'subscribed' ? t.enabledOnDevice : t.notActive}</p>
           </div>
           <span
             className={cn(
@@ -288,11 +381,11 @@ function BrowserPushCard() {
               status === 'subscribed' ? 'bg-accent text-accent-foreground' : 'bg-card text-muted-foreground'
             )}
           >
-            {status === 'subscribed' ? 'On' : 'Off'}
+            {status === 'subscribed' ? t.on : t.off}
           </span>
         </div>
 
-        <p>{pushStatusText[status]}</p>
+        <p>{t.statusText[status]}</p>
 
         {error && <p className="rounded-lg bg-destructive/10 p-3 text-destructive">{error}</p>}
 
@@ -304,7 +397,7 @@ function BrowserPushCard() {
             isLoading={isBusy}
           >
             <Bell className="h-4 w-4" />
-            {status === 'subscribed' ? 'Disable push' : 'Enable push'}
+            {status === 'subscribed' ? t.disablePush : t.enablePush}
           </Button>
         )}
       </CardContent>
@@ -313,6 +406,29 @@ function BrowserPushCard() {
 }
 
 function EmailAlertsCard() {
+  const t = useTexts({
+    ru: {
+      emailAlerts: 'Email-алерты',
+      smtpNotice: 'Email не настроен на этом сервере (SMTP_HOST). Получатели сохраняются, но письма не отправляются.',
+      recipientsLabel: 'Получатели (через запятую, до 10)',
+      saved: 'Получатели email сохранены.',
+      saveError: 'Не удалось сохранить получателей email.',
+      saveRecipients: 'Сохранить получателей',
+      recipients: 'Получатели',
+      noRecipients: 'Получатели не настроены. Попросите владельца рабочего пространства добавить их.',
+    },
+    en: {
+      emailAlerts: 'Email alerts',
+      smtpNotice: 'Email is not configured on this server (SMTP_HOST). Recipients are stored, but no emails are sent.',
+      recipientsLabel: 'Recipients (comma-separated, up to 10)',
+      saved: 'Email recipients saved.',
+      saveError: 'Unable to save email recipients.',
+      saveRecipients: 'Save recipients',
+      recipients: 'Recipients',
+      noRecipients: 'No recipients configured. Ask the workspace owner to add some.',
+    },
+  });
+
   const meta = useMeta();
   const emailEnabled = meta?.email_enabled ?? false;
   const [isOwner, setIsOwner] = useState(false);
@@ -357,11 +473,11 @@ function EmailAlertsCard() {
       const list = updated.alert_emails ?? parsed;
       setEmails(list);
       setDraft(list.join(', '));
-      setMessage({ tone: 'success', text: 'Email recipients saved.' });
+      setMessage({ tone: 'success', text: t.saved });
     } catch (error) {
       setMessage({
         tone: 'error',
-        text: error instanceof ApiError ? error.message : 'Unable to save email recipients.',
+        text: error instanceof ApiError ? error.message : t.saveError,
       });
     } finally {
       setIsSaving(false);
@@ -373,13 +489,13 @@ function EmailAlertsCard() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Mail className="h-5 w-5 text-primary" />
-          Email alerts
+          {t.emailAlerts}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4 text-sm leading-5 text-muted-foreground">
         {!emailEnabled && (
           <p className="rounded-lg bg-secondary p-4">
-            Email is not configured on this server (SMTP_HOST). Recipients are stored, but no emails are sent.
+            {t.smtpNotice}
           </p>
         )}
 
@@ -387,7 +503,7 @@ function EmailAlertsCard() {
           <form onSubmit={handleSave} className="space-y-4">
             <div>
               <label htmlFor="alert-emails" className="mb-1 block text-sm font-normal text-placeholder">
-                Recipients (comma-separated, up to 10)
+                {t.recipientsLabel}
               </label>
               <textarea
                 id="alert-emails"
@@ -415,17 +531,17 @@ function EmailAlertsCard() {
             <div className="flex justify-end">
               <Button type="submit" isLoading={isSaving}>
                 <Mail className="h-4 w-4" />
-                Save recipients
+                {t.saveRecipients}
               </Button>
             </div>
           </form>
         ) : (
           <div className="rounded-lg bg-secondary p-4">
-            <p className="font-semibold text-foreground">Recipients</p>
+            <p className="font-semibold text-foreground">{t.recipients}</p>
             <p className="mt-2">
               {emails.length
                 ? emails.join(', ')
-                : 'No recipients configured. Ask the workspace owner to add some.'}
+                : t.noRecipients}
             </p>
           </div>
         )}

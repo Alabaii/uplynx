@@ -10,23 +10,6 @@ type RequestOptions = Omit<RequestInit, 'body'> & {
 export type MonitorType = 'http' | 'browser';
 export type MonitorStatus = 'up' | 'down' | 'paused' | 'degraded' | 'pending';
 
-export function getStatusLabel(status: MonitorStatus) {
-  switch (status) {
-    case 'up':
-      return 'Up';
-    case 'down':
-      return 'Down';
-    case 'paused':
-      return 'Paused';
-    case 'degraded':
-      return 'Degraded';
-    case 'pending':
-      return 'Pending';
-    default:
-      return status;
-  }
-}
-
 export type BrowserStep = {
   action: string;
   url?: string | null;
