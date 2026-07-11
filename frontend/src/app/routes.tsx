@@ -1,6 +1,7 @@
 import React from 'react';
 import { createBrowserRouter, Navigate } from 'react-router';
 import { AppLayout } from './layouts/AppLayout';
+import { PublicLayout } from './layouts/PublicLayout';
 import { MetaProvider } from './meta-context';
 import { hasValidSession } from './auth';
 
@@ -19,6 +20,10 @@ const TelegramSettings = React.lazy(() => import('./pages/Telegram'));
 const Team = React.lazy(() => import('./pages/Team'));
 const StatusPage = React.lazy(() => import('./pages/StatusPage'));
 const Admin = React.lazy(() => import('./pages/Admin'));
+const Landing = React.lazy(() => import('./pages/Landing'));
+const Pricing = React.lazy(() => import('./pages/Pricing'));
+const Legal = React.lazy(() => import('./pages/Legal'));
+const Contacts = React.lazy(() => import('./pages/Contacts'));
 
 const PageLoader = () => (
   <div className="flex min-h-[16rem] items-center justify-center rounded-lg bg-card text-sm text-placeholder shadow-card">
@@ -32,7 +37,8 @@ const withSuspense = (children: React.ReactNode) => (
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   if (!hasValidSession()) {
-    return <Navigate to="/login" replace />;
+    // гость с корня и защищённых страниц попадает на публичный лендинг
+    return <Navigate to="/welcome" replace />;
   }
 
   return <>{children}</>;
@@ -45,6 +51,16 @@ export const router = createBrowserRouter([
   { path: '/reset-password', element: withSuspense(<ResetPasswordPage />) },
   { path: '/verify-email', element: withSuspense(<VerifyEmailPage />) },
   { path: '/status/:slug', element: withSuspense(<StatusPage />) },
+  {
+    // публичный сайт: лендинг, тарифы, юридика, контакты (требование модерации ЮKassa)
+    element: <PublicLayout />,
+    children: [
+      { path: '/welcome', element: withSuspense(<Landing />) },
+      { path: '/pricing', element: withSuspense(<Pricing />) },
+      { path: '/legal/:doc', element: withSuspense(<Legal />) },
+      { path: '/contacts', element: withSuspense(<Contacts />) },
+    ],
+  },
   {
     path: '/',
     element: (

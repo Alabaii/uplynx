@@ -396,6 +396,10 @@ export type AdminOrg = {
   created_at: string;
 };
 
+export function getPublicPlans() {
+  return request<Plan[]>('/plans', { auth: false });
+}
+
 export function getAdminOverview() {
   return request<AdminOverview>('/admin/overview');
 }

@@ -1,0 +1,21 @@
+# Релизный гейт: в main можно мержить ТОЛЬКО из dev.
+# Чек включён в required status checks ветки main — PR из любой другой ветки
+# получает красный чек и физически не мержится (enforce_admins действует и на владельца).
+name: Release gate
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  dev-only:
+    name: Release gate (only dev -> main)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Источник PR должен быть веткой dev
+        run: |
+          if [ "${{ github.head_ref }}" != "dev" ]; then
+            echo "::error::В main мержим только из dev. Этот PR из '${{ github.head_ref }}' — направьте его в dev."
+            exit 1
+          fi
+          echo "OK: релизный PR dev -> main"
