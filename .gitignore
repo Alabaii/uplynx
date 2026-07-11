@@ -258,3 +258,6 @@ AGENTS.md
 !README.md
 # Дампы PostgreSQL (сервис backup) — не для репозитория
 backups/
+
+# Деплой-гайд — единственный md кроме README, который живёт в репо
+!DEPLOY.md
