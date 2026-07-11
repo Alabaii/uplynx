@@ -3,13 +3,11 @@ import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import bcrypt
 from cryptography.fernet import Fernet
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 from app.core.config import get_settings
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def _fernet() -> Fernet:
@@ -34,12 +32,23 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def _password_bytes(password: str) -> bytes:
+    # bcrypt учитывает максимум 72 байта; passlib (использовался раньше) усекал
+    # молча, bcrypt>=5 бросает ValueError — сохраняем прежнюю семантику явно
+    return password.encode("utf-8")[:72]
+
+
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(_password_bytes(password), bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(password, hashed_password)
+    """Совместимо со старыми passlib-хэшами: формат $2b$ одинаковый."""
+    try:
+        return bcrypt.checkpw(_password_bytes(password), hashed_password.encode("utf-8"))
+    except ValueError:
+        # повреждённый/чужой формат хэша — просто отказ, не 500
+        return False
 
 
 def create_access_token(
