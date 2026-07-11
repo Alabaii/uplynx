@@ -44,7 +44,9 @@ monitoring.example.ru {
 ## 2. Код и секреты
 
 ```bash
-git clone https://github.com/Alabaii/uplynx.git /opt/uplynx
+# ВАЖНО: -b main — прод живёт только на main (ветка dev — для разработки,
+# по умолчанию в репозитории именно она)
+git clone -b main https://github.com/Alabaii/uplynx.git /opt/uplynx
 cd /opt/uplynx
 ```
 
@@ -132,9 +134,12 @@ cd /opt/uplynx && sh deploy/restore-check.sh
 ## 6. Обновления
 
 ```bash
-cd /opt/uplynx && git pull
+cd /opt/uplynx && git pull            # сервер на ветке main: pull подтянет только релизы
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
+
+Релиз = PR из `dev` в `main` (обе ветки защищены: мерж только с зелёным CI).
+Повседневная разработка идёт ветками от `dev` через PR в `dev`.
 
 Миграции применятся сами. Откат кода: `git checkout <тег/коммит>` и та же
 команда; БД назад не откатывается — на то бэкапы.
