@@ -13,21 +13,85 @@
 | SMTP | верификация email, сброс пароля, email-алерты | любой транзакционный SMTP; без него вход работает, но верификации не будет |
 | Хранилище для бэкапов | дампы БД должны жить не на этом же диске | S3-совместимое / другой сервер / хотя бы rclone в облако |
 
+## 0.1 Первичная настройка свежей Ubuntu-машины
+
+Хостер выдаёт голый сервер с root-доступом по паролю — в таком виде его
+нельзя оставлять в интернете. Делается один раз, ~15 минут.
+
+**Шаг 1. Первый вход и обновления** (пароль root — из письма хостера):
+
+```bash
+ssh root@IP-сервера
+apt update && apt upgrade -y
+timedatectl set-timezone Europe/Moscow
+```
+
+**Шаг 2. Свой пользователь вместо root** (работать под root — плохая привычка,
+одна опечатка в команде может снести систему):
+
+```bash
+adduser deploy            # придумайте пароль — он понадобится для sudo
+usermod -aG sudo deploy
+```
+
+**Шаг 3. Вход по SSH-ключу вместо пароля.** На ВАШЕМ компьютере (Windows,
+PowerShell — ssh уже встроен):
+
+```powershell
+ssh-keygen -t ed25519          # Enter на все вопросы; ключ ляжет в C:\Users\вы\.ssh\
+type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh deploy@IP-сервера "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"
+```
+
+Проверьте: `ssh deploy@IP-сервера` должен пустить БЕЗ пароля. Пока это не
+работает — дальше не идите, иначе можно отрезать себе доступ.
+
+**Шаг 4. Запрет входа по паролю и под root** (закрывает главный вектор атак —
+перебор паролей ботами, он начнётся в первые же часы жизни сервера):
+
+```bash
+sudo tee /etc/ssh/sshd_config.d/90-hardening.conf > /dev/null <<'EOF'
+PasswordAuthentication no
+PermitRootLogin no
+EOF
+sudo systemctl restart ssh
+```
+
+Не закрывая текущую сессию, откройте НОВОЕ окно терминала и проверьте, что
+`ssh deploy@IP` по ключу работает, а `ssh root@IP` — отказ.
+
+**Шаг 5. Автоматика на каждый день:**
+
+```bash
+# fail2ban банит IP после нескольких неудачных попыток входа
+sudo apt install -y fail2ban && sudo systemctl enable --now fail2ban
+
+# автоустановка security-обновлений Ubuntu
+sudo apt install -y unattended-upgrades
+sudo dpkg-reconfigure -plow unattended-upgrades   # ответить Yes
+
+# 2 ГБ swap — страховка от OOM при пиках browser-воркера
+sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile
+sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+
+Дальше все команды выполняются под пользователем `deploy` через `sudo`.
+
 ## 1. Подготовка сервера
 
 ```bash
-# как root
-apt update && apt upgrade -y
-curl -fsSL https://get.docker.com | sh
+sudo apt update && sudo apt upgrade -y
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker deploy && newgrp docker   # docker без sudo
 
 # firewall: наружу только SSH и веб
-ufw allow OpenSSH && ufw allow 80/tcp && ufw allow 443/tcp && ufw enable
+sudo ufw allow OpenSSH && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && sudo ufw enable
 
 # Caddy — TLS-терминатор перед стеком (сертификаты Let's Encrypt сам получает и продлевает)
-apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
-apt update && apt install -y caddy
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo apt update && sudo apt install -y caddy
 ```
 
 `/etc/caddy/Caddyfile` (замените домен):
@@ -38,7 +102,7 @@ monitoring.example.ru {
 }
 ```
 
-`systemctl reload caddy`. Caddy слушает 80/443, внутрь проксирует на 8080 —
+`sudo systemctl reload caddy`. Caddy слушает 80/443, внутрь проксирует на 8080 —
 туда мы привяжем nginx стека (сам стек наружу ничего не публикует).
 
 ## 2. Код и секреты
@@ -46,6 +110,7 @@ monitoring.example.ru {
 ```bash
 # ВАЖНО: -b main — прод живёт только на main (ветка dev — для разработки,
 # по умолчанию в репозитории именно она)
+sudo mkdir -p /opt/uplynx && sudo chown deploy:deploy /opt/uplynx
 git clone -b main https://github.com/Alabaii/uplynx.git /opt/uplynx
 cd /opt/uplynx
 ```
