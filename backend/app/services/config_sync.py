@@ -104,7 +104,11 @@ def monitor_to_config(monitor: Monitor) -> ConfigMonitor:
 
 
 def build_config_from_db(db: Session, org: Organization) -> ConfigDocument:
-    monitors = db.scalars(select(Monitor).where(Monitor.org_id == org.id).order_by(Monitor.slug)).all()
+    monitors = db.scalars(
+        select(Monitor)
+        .where(Monitor.org_id == org.id, Monitor.archived_at.is_(None))
+        .order_by(Monitor.slug)
+    ).all()
     return ConfigDocument(version=1, monitors=[monitor_to_config(m) for m in monitors])
 
 
@@ -116,7 +120,9 @@ def enforce_monitor_limit(db: Session, org: Organization, new_enabled_count: int
     settings = get_settings()
     if settings.deployment_mode == "team":
         others = db.scalar(
-            select(func.count()).select_from(Monitor).where(Monitor.enabled.is_(True), Monitor.org_id != org.id)
+            select(func.count())
+            .select_from(Monitor)
+            .where(Monitor.enabled.is_(True), Monitor.archived_at.is_(None), Monitor.org_id != org.id)
         ) or 0
         if others + new_enabled_count > settings.team_max_monitors:
             raise HTTPException(
@@ -132,7 +138,14 @@ def enforce_monitor_limit(db: Session, org: Organization, new_enabled_count: int
 
 
 def resync_monitors(db: Session, user: User, org: Organization, document: ConfigDocument) -> None:
-    existing = {m.slug: m for m in db.scalars(select(Monitor).where(Monitor.org_id == org.id)).all()}
+    # архивные в синхронизации не участвуют: их слаг свободен и может быть занят
+    # новым монитором, а сама архивация — не «отсутствие в конфиге»
+    existing = {
+        m.slug: m
+        for m in db.scalars(
+            select(Monitor).where(Monitor.org_id == org.id, Monitor.archived_at.is_(None))
+        ).all()
+    }
     incoming = {m.id: m for m in document.monitors}
     now = datetime.now(timezone.utc)
 
@@ -216,11 +229,17 @@ def persist_monitors_as_config(db: Session, user: User, org: Organization, fmt: 
 
 def create_monitor_from_payload(db: Session, user: User, org: Organization, payload: MonitorCreate) -> Monitor:
     validate_target_url(payload.url)
-    if db.scalar(select(Monitor).where(Monitor.org_id == org.id, Monitor.slug == payload.id)):
+    if db.scalar(
+        select(Monitor).where(
+            Monitor.org_id == org.id, Monitor.slug == payload.id, Monitor.archived_at.is_(None)
+        )
+    ):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Monitor already exists")
     if payload.enabled:
         org_enabled = db.scalar(
-            select(func.count()).select_from(Monitor).where(Monitor.enabled.is_(True), Monitor.org_id == org.id)
+            select(func.count())
+            .select_from(Monitor)
+            .where(Monitor.enabled.is_(True), Monitor.archived_at.is_(None), Monitor.org_id == org.id)
         ) or 0
         enforce_monitor_limit(db, org, org_enabled + 1)
         enabled_total, enabled_browser = count_enabled_monitors(db, org)

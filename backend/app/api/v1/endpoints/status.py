@@ -34,7 +34,9 @@ def public_status(org_slug: str, db: Session = Depends(get_db)) -> PublicStatusR
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Status page not found")
 
     monitors = db.scalars(
-        select(Monitor).where(Monitor.org_id == org.id, Monitor.enabled.is_(True)).order_by(Monitor.slug)
+        select(Monitor)
+        .where(Monitor.org_id == org.id, Monitor.enabled.is_(True), Monitor.archived_at.is_(None))
+        .order_by(Monitor.slug)
     ).all()
     now = datetime.now(timezone.utc)
     since = now - timedelta(days=1)

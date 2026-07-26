@@ -34,7 +34,7 @@ def collect_uptime_stats(db: Session, org_id: int, since: datetime) -> list[Moni
             func.avg(CheckResult.response_time_ms).label("avg_response_ms"),
         )
         .outerjoin(CheckResult, and_(CheckResult.monitor_id == Monitor.id, CheckResult.timestamp >= since))
-        .where(Monitor.org_id == org_id)
+        .where(Monitor.org_id == org_id, Monitor.archived_at.is_(None))
         .group_by(Monitor.id, Monitor.slug)
         .order_by(Monitor.slug)
     ).all()
@@ -47,7 +47,7 @@ def collect_uptime_stats(db: Session, org_id: int, since: datetime) -> list[Moni
     ranked = (
         select(CheckResult.monitor_id, CheckResult.timestamp, CheckResult.status, CheckResult.response_time_ms, last_rank)
         .join(Monitor, Monitor.id == CheckResult.monitor_id)
-        .where(Monitor.org_id == org_id, CheckResult.timestamp >= since)
+        .where(Monitor.org_id == org_id, Monitor.archived_at.is_(None), CheckResult.timestamp >= since)
         .subquery()
     )
     last_checks = {row.monitor_id: row for row in db.execute(select(ranked).where(ranked.c.last_rank == 1)).all()}

@@ -445,6 +445,12 @@ export function createMonitor(payload: {
   });
 }
 
+export function deleteMonitor(id: string) {
+  return request<void>(`/monitors/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
 export function runCheckNow(id: string) {
   return request<{ queued: boolean; task_id: string }>(`/monitors/${encodeURIComponent(id)}/check`, {
     method: 'POST',

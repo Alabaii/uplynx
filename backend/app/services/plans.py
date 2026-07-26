@@ -115,12 +115,19 @@ def enforce_plan_monitor_limits(db: Session, org: Organization, enabled_total: i
 def count_enabled_monitors(db: Session, org: Organization) -> tuple[int, int]:
     """(всего enabled, из них browser) — текущее состояние организации."""
     total = db.scalar(
-        select(func.count()).select_from(Monitor).where(Monitor.org_id == org.id, Monitor.enabled.is_(True))
+        select(func.count())
+        .select_from(Monitor)
+        .where(Monitor.org_id == org.id, Monitor.enabled.is_(True), Monitor.archived_at.is_(None))
     ) or 0
     browser = db.scalar(
         select(func.count())
         .select_from(Monitor)
-        .where(Monitor.org_id == org.id, Monitor.enabled.is_(True), Monitor.type == "browser")
+        .where(
+            Monitor.org_id == org.id,
+            Monitor.enabled.is_(True),
+            Monitor.archived_at.is_(None),
+            Monitor.type == "browser",
+        )
     ) or 0
     return total, browser
 
@@ -158,7 +165,7 @@ def apply_plan_downgrade(db: Session, org: Organization) -> list[str]:
     enabled = list(
         db.scalars(
             select(Monitor)
-            .where(Monitor.org_id == org.id, Monitor.enabled.is_(True))
+            .where(Monitor.org_id == org.id, Monitor.enabled.is_(True), Monitor.archived_at.is_(None))
             .order_by(Monitor.created_at, Monitor.id)
         )
     )

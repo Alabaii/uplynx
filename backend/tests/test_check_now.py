@@ -75,10 +75,21 @@ def test_check_now_unknown_monitor_404(client, auth_headers, fake_publisher):
 
 def test_check_now_disabled_monitor_409(client, auth_headers, fake_publisher):
     assert client.post("/api/v1/monitors", json=MONITOR_PAYLOAD, headers=auth_headers).status_code == 201
-    assert client.delete("/api/v1/monitors/site", headers=auth_headers).status_code == 204
+    # пауза — это enabled=false, а не удаление (оно теперь архивирует)
+    assert client.put("/api/v1/monitors/site", json={"enabled": False}, headers=auth_headers).status_code == 200
 
     response = client.post("/api/v1/monitors/site/check", headers=auth_headers)
     assert response.status_code == 409
+    assert fake_publisher.tasks == []
+
+
+def test_check_now_archived_monitor_404(client, auth_headers, fake_publisher):
+    assert client.post("/api/v1/monitors", json=MONITOR_PAYLOAD, headers=auth_headers).status_code == 201
+    assert client.delete("/api/v1/monitors/site", headers=auth_headers).status_code == 204
+
+    # архивного монитора для API не существует: слаг мог быть занят заново
+    response = client.post("/api/v1/monitors/site/check", headers=auth_headers)
+    assert response.status_code == 404
     assert fake_publisher.tasks == []
 
 

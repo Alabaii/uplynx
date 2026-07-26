@@ -43,6 +43,7 @@ def list_incidents(
         .join(Monitor, Monitor.id == Incident.monitor_id)
         .where(
             Incident.org_id == ctx.org.id,
+            Monitor.archived_at.is_(None),
             Incident.started_at >= datetime.now(timezone.utc) - _SINCE_MAP[range],
         )
     )
