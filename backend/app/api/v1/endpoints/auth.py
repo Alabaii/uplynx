@@ -99,12 +99,29 @@ def revoke_all_refresh_tokens(db: Session, user_id: int) -> None:
 
 
 def client_ip(request: Request) -> str:
-    # за nginx-прокси реальный адрес приходит в X-Forwarded-For; прямой доступ
-    # к бэкенду в проде закрыт (порт не публикуется), так что заголовку можно верить
+    """Адрес клиента для ключей rate-limit.
+
+    X-Forwarded-For клиент подделывает свободно, и подделанное значение попадает
+    в НАЧАЛО списка: каждый прокси дописывает адрес своего собеседника в конец.
+    Поэтому доверяем только хвосту — отсчитываем от конца столько записей,
+    сколько наших прокси стоит перед nginx (trusted_proxy_hops). Вписанное
+    клиентом остаётся слева и не выбирается никогда, сколько бы он ни прислал.
+
+    Инвариант: снаружи к бэкенду ходят только через nginx — в прод-оверлее порт
+    8000 не публикуется (docker-compose.prod.yml). Если открыть его наружу,
+    заголовок перестанет быть достоверным: дописывать адрес будет некому.
+    """
     forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    direct = request.client.host if request.client else "unknown"
+    if not forwarded:
+        return direct
+    parts = [part.strip() for part in forwarded.split(",") if part.strip()]
+    index = len(parts) - 1 - get_settings().trusted_proxy_hops
+    if index < 0:
+        # записей меньше, чем прокси по настройке: топология не та, что заявлена.
+        # Взять запись левее — значит поверить клиенту, поэтому берём соединение.
+        return direct
+    return parts[index]
 
 
 def enforce_rate_limit(limiter, key: str) -> None:
