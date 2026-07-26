@@ -4,6 +4,7 @@ import logging
 from pywebpush import WebPushException, webpush
 
 from app.core.config import get_settings
+from app.core.ssrf import BlockedTargetError, validate_public_url
 from app.models import PushSubscription
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,13 @@ def push_enabled() -> bool:
 
 def send_web_push(subscription: PushSubscription, title: str, body: str, url: str = "/") -> bool:
     settings = get_settings()
+    try:
+        # адрес проверен при подписке, но DNS мог смениться с тех пор — воркер
+        # перепроверяет его перед каждой отправкой, как и цели мониторов
+        validate_public_url(subscription.endpoint, allow_private=settings.allow_private_targets)
+    except BlockedTargetError as exc:
+        logger.warning("push endpoint %s is not publicly routable: %s", subscription.endpoint, exc)
+        return False
     try:
         webpush(
             subscription_info={
