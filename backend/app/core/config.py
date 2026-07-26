@@ -126,6 +126,27 @@ def validate_secret_encryption_key(settings: Settings) -> None:
             "SECRET_ENCRYPTION_KEY is not a valid Fernet key (expected 32 url-safe base64-encoded bytes)"
         ) from exc
 
+def validate_cors_origins(settings: Settings) -> None:
+    """В production запрещаем '*': вместе с allow_credentials это снимает CORS совсем.
+
+    Starlette при allow_origins=['*'] и allow_credentials=True отражает Origin
+    запроса обратно, то есть любой сайт сможет ходить в API с куками и заголовками
+    пользователя. Опечатка в .env не должна стоить так дорого.
+    """
+    origins = settings.cors_origins_list
+    logger = logging.getLogger(__name__)
+    if "*" in origins:
+        message = "CORS_ORIGINS contains '*' while credentials are allowed; list the frontend origins explicitly"
+        if settings.environment == "production":
+            raise RuntimeError(message)
+        logger.warning(message)
+        return
+    malformed = [origin for origin in origins if not origin.startswith(("http://", "https://"))]
+    if malformed:
+        # частая ошибка: домен без схемы — браузер такой origin не сопоставит,
+        # и запросы фронтенда молча начнут блокироваться
+        raise RuntimeError(f"CORS_ORIGINS entries must include a scheme: {', '.join(malformed)}")
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -19,8 +19,9 @@ class FakeSMTP:
     def __exit__(self, *args):
         return False
 
-    def starttls(self):
+    def starttls(self, context=None):
         self.starttls_called = True
+        self.starttls_context = context
 
     def login(self, username, password):
         self.login_args = (username, password)

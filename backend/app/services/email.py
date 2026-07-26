@@ -1,5 +1,6 @@
 import logging
 import smtplib
+import ssl
 from email.message import EmailMessage
 
 from app.core.config import get_settings
@@ -30,7 +31,10 @@ def send_email(to: str, subject: str, body: str) -> bool:
     try:
         with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as smtp:
             if settings.smtp_starttls:
-                smtp.starttls()
+                # без явного контекста smtplib берёт тот, что не проверяет
+                # сертификат и имя хоста: логин SMTP и ссылка сброса пароля
+                # уходили бы по каналу, который можно перехватить подменой
+                smtp.starttls(context=ssl.create_default_context())
             if settings.smtp_username:
                 smtp.login(settings.smtp_username, settings.smtp_password or "")
             smtp.send_message(message)
