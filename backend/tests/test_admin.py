@@ -12,6 +12,7 @@ class FakePublisher:
 
     def __init__(self, depths: dict[str, int] | None = None) -> None:
         self.depths = depths
+        self.closed = False
 
     def check_queue_depth(self, queue: str) -> int:
         if self.depths is None:
@@ -24,7 +25,7 @@ class FakePublisher:
         return SimpleNamespace(method=SimpleNamespace(message_count=self.depths[queue]))
 
     def close(self) -> None:
-        pass
+        self.closed = True
 
 
 @pytest.fixture()
@@ -156,3 +157,25 @@ def test_overview_queue_depths(client, superuser_headers):
     assert response.status_code == 200
     queues = {item["name"]: item["depth"] for item in response.json()["queues"]}
     assert queues == depths
+
+
+def test_publisher_dependency_closes_the_connection(monkeypatch):
+    """Соединение с брокером открывается на каждый обзор — закрыть его обязаны оба пути.
+
+    Раньше close() стоял только в ветке сбоя, и успешный запрос оставлял
+    соединение висеть до таймаута на стороне RabbitMQ.
+    """
+    monkeypatch.setattr("app.api.v1.endpoints.admin.RabbitPublisher", FakePublisher)
+
+    generator = get_publisher()
+    publisher = next(generator)
+    with pytest.raises(StopIteration):
+        next(generator)
+    assert publisher.closed is True
+
+    # и когда обработчик упал, соединение тоже не остаётся
+    generator = get_publisher()
+    publisher = next(generator)
+    with pytest.raises(RuntimeError):
+        generator.throw(RuntimeError("handler failed"))
+    assert publisher.closed is True

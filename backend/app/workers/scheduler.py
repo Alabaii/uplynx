@@ -89,6 +89,7 @@ def publish_due_checks(publisher: RabbitPublisher | None = None) -> int:
         ).all()
         maintenance_until = collect_maintenance_ends(db, monitors, now)
         plan_minimums = collect_plan_minimums(db, monitors)
+        tasks = []
         for monitor in monitors:
             pause_until = maintenance_until.get(monitor.id)
             if pause_until is not None:
@@ -96,11 +97,17 @@ def publish_due_checks(publisher: RabbitPublisher | None = None) -> int:
                 # первый запуск — сразу по окончании работ
                 monitor.next_run_at = pause_until
                 continue
-            task = task_for_monitor(monitor, timeout_seconds=settings.check_timeout_seconds)
-            publisher.publish(task)
+            tasks.append(task_for_monitor(monitor, timeout_seconds=settings.check_timeout_seconds))
             monitor.next_run_at = now + timedelta(seconds=effective_interval(monitor, plan_minimums))
-            count += 1
+        # сдвиг расписания фиксируется ДО отправки: если брокер откажет на середине
+        # батча, транзакция откатила бы next_run_at уже опубликованным мониторам,
+        # и следующий тик проверил бы их повторно. Пропустить тик безопаснее, чем
+        # выполнить проверку дважды — при недоступном брокере он всё равно потерян
         db.commit()
+
+    for task in tasks:
+        publisher.publish(task)
+        count += 1
     if count:
         SCHEDULER_PUBLISHED.inc(count)
     return count

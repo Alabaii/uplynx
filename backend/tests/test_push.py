@@ -37,6 +37,36 @@ def test_subscribe_requires_auth(client, monkeypatch):
     assert client.post("/api/v1/push/subscribe", json=payload).status_code == 401
 
 
+def test_subscribe_rejects_internal_endpoints(client, auth_headers, monkeypatch):
+    # адрес push-сервиса задаёт клиент, а POST по нему шлёт воркер изнутри сети
+    enable_push(monkeypatch)
+    for endpoint in (
+        "http://169.254.169.254/latest/meta-data/",
+        "http://127.0.0.1:8000/api/v1/monitors",
+        "http://localhost/hook",
+        "http://[::ffff:127.0.0.1]/hook",
+        "file:///etc/passwd",
+    ):
+        response = client.post(
+            "/api/v1/push/subscribe",
+            json={"endpoint": endpoint, "keys": {"p256dh": "p", "auth": "a"}},
+            headers=auth_headers,
+        )
+        assert response.status_code == 400, endpoint
+
+
+def test_subscribe_allows_internal_endpoints_on_prem(client, auth_headers, monkeypatch):
+    # on-prem: ALLOW_PRIVATE_TARGETS снимает ограничение, как и для мониторов
+    enable_push(monkeypatch)
+    monkeypatch.setattr(get_settings(), "allow_private_targets", True)
+    response = client.post(
+        "/api/v1/push/subscribe",
+        json={"endpoint": "http://127.0.0.1:9000/push", "keys": {"p256dh": "p", "auth": "a"}},
+        headers=auth_headers,
+    )
+    assert response.status_code == 204
+
+
 def test_subscribe_upsert_and_unsubscribe(client, auth_headers, db_session_factory, monkeypatch):
     enable_push(monkeypatch)
     payload = {"endpoint": "https://push.example/e1", "keys": {"p256dh": "p1", "auth": "a1"}}

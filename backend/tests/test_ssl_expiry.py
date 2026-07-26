@@ -27,6 +27,21 @@ def test_fetch_ssl_expiry_skips_non_https():
     assert fetch_ssl_expiry("not-a-url") is None
 
 
+def test_fetch_ssl_expiry_does_not_connect_to_private_targets(monkeypatch):
+    """Сертификат снимается отдельным соединением мимо httpx-хука — адрес проверяем сами."""
+    attempted = []
+
+    def refuse(*args, **kwargs):
+        attempted.append(args)
+        raise AssertionError("connection must not be attempted for a private target")
+
+    monkeypatch.setattr("app.services.checks.socket.create_connection", refuse)
+
+    assert fetch_ssl_expiry("https://127.0.0.1") is None
+    assert fetch_ssl_expiry("https://169.254.169.254") is None
+    assert attempted == []
+
+
 def test_ssl_details_computes_days_left():
     assert ssl_details(None) is None
     info = ssl_details(datetime.now(timezone.utc) + timedelta(days=10, hours=1))

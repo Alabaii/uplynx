@@ -405,6 +405,39 @@ def test_scheduler_publishes_due_and_advances_next_run_at(worker_session_factory
     assert publish_due_checks(FakePublisher()) == 0
 
 
+def test_scheduler_does_not_republish_after_broker_failure(worker_session_factory, monkeypatch):
+    """Отказ брокера на середине батча не должен приводить к повторной проверке.
+
+    Раньше next_run_at коммитился после публикации: исключение откатывало сдвиг
+    расписания уже отправленным мониторам, и следующий тик слал их заново.
+    """
+    from app.workers.scheduler import publish_due_checks
+
+    monkeypatch.setattr("app.workers.scheduler.SessionLocal", worker_session_factory)
+    monitor_id = seed_monitor(worker_session_factory, with_integration=False)
+
+    class BrokenPublisher:
+        def publish(self, task):
+            raise RuntimeError("broker is down")
+
+    with pytest.raises(RuntimeError):
+        publish_due_checks(BrokenPublisher())
+
+    published = []
+
+    class FakePublisher:
+        def publish(self, task):
+            published.append(task)
+
+    # монитор уже сдвинут: тик потерян, но проверка не выполнится дважды
+    assert publish_due_checks(FakePublisher()) == 0
+    assert published == []
+
+    with worker_session_factory() as db:
+        next_run_at = db.get(Monitor, monitor_id).next_run_at
+    assert next_run_at.replace(tzinfo=timezone.utc) > datetime.now(timezone.utc)
+
+
 def test_scheduler_fair_share_between_orgs(worker_session_factory, monkeypatch):
     from app.workers.scheduler import publish_due_checks
 

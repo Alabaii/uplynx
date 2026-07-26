@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Generator
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -27,9 +28,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def get_publisher() -> RabbitPublisher:
-    # per-request подключение — как в monitors.py: BlockingConnection не потокобезопасен
-    return RabbitPublisher()
+def get_publisher() -> Generator[RabbitPublisher, None, None]:
+    # per-request подключение — как в monitors.py: BlockingConnection не потокобезопасен.
+    # Закрытие в finally: без него каждый обзор оставлял бы висеть соединение с брокером
+    publisher = RabbitPublisher()
+    try:
+        yield publisher
+    finally:
+        publisher.close()
 
 
 def collect_queue_depths(publisher: RabbitPublisher) -> list[AdminQueueDepth] | None:
@@ -45,7 +51,6 @@ def collect_queue_depths(publisher: RabbitPublisher) -> list[AdminQueueDepth] | 
         )
         return depths
     except Exception:  # noqa: BLE001 — любой сбой брокера не должен ломать обзор
-        publisher.close()
         return None
 
 

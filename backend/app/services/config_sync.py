@@ -5,7 +5,7 @@ from typing import Any
 import yaml
 from fastapi import HTTPException, status
 from pydantic import ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -19,15 +19,27 @@ from app.services.plans import (
 )
 
 
+# сколько последних версий конфига держим на организацию: снимок пишется на
+# каждое изменение монитора, откатываются же на недавние
+MAX_CONFIG_VERSIONS_KEPT = 50
+
+
 def validate_target_url(url: str | None) -> None:
     """Быстрая (без DNS) проверка URL монитора при создании/загрузке конфига.
 
     Полную проверку с резолвом делает воркер перед запросом; здесь — мгновенный
-    фидбек на литеральный приватный IP / localhost. URL с плейсхолдером ${VAR}
-    пропускаем: реальное значение известно только воркеру.
+    фидбек на литеральный приватный IP / localhost.
     """
-    if not url or "${" in url:
+    if not url:
         return
+    if "${" in url:
+        # подстановка секретов работает только в шагах browser-сценария: HTTP-воркер
+        # отправил бы запрос на литеральный ${NAME}, и монитор молча не работал бы.
+        # Заодно такой URL проскакивал мимо SSRF-проверки — её нечем было применить
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Secret placeholders ${NAME} are substituted only in browser scenario steps, not in the monitor URL",
+        )
     try:
         validate_public_url(url, allow_private=get_settings().allow_private_targets, resolve=False)
     except BlockedTargetError as exc:
@@ -72,10 +84,34 @@ def next_config_version(db: Session, org_id: int) -> int:
     return current + 1
 
 
+def prune_config_versions(db: Session, org_id: int, keep: int = MAX_CONFIG_VERSIONS_KEPT) -> None:
+    """Оставляет организации только последние keep версий конфига.
+
+    Снимок конфига пишется на КАЖДОЕ изменение монитора, а не только на явную
+    загрузку: без обрезки таблица растёт вместе с обычной работой, и каждая
+    строка несёт до полумегабайта содержимого. Что менялось и кем — остаётся
+    в audit_log, здесь нужны только версии, на которые реально откатываются.
+    """
+    oldest_kept = db.scalar(
+        select(ConfigVersion.version)
+        .where(ConfigVersion.org_id == org_id)
+        .order_by(ConfigVersion.version.desc())
+        .offset(keep - 1)
+        .limit(1)
+    )
+    if oldest_kept is not None:
+        db.execute(
+            delete(ConfigVersion).where(
+                ConfigVersion.org_id == org_id, ConfigVersion.version < oldest_kept
+            )
+        )
+
+
 def create_config_version(db: Session, user: User, org: Organization, content: str, fmt: str) -> ConfigVersion:
     version = ConfigVersion(user_id=user.id, org_id=org.id, version=next_config_version(db, org.id), content=content, format=fmt)
     db.add(version)
     db.flush()
+    prune_config_versions(db, org.id)
     return version
 
 

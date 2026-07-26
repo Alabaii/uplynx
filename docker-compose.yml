@@ -14,6 +14,9 @@ services:
       - postgres-data:/var/lib/postgresql/data
       # создаёт роль приложения при первой инициализации тома
       - ./deploy/postgres-init.sh:/docker-entrypoint-initdb.d/10-app-role.sh:ro
+    # без политики перезапуска стек не переживает перезагрузку хоста: приложение
+    # (restart: unless-stopped) поднимется и уйдёт в цикл рестартов, а БД останется лежать
+    restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-monitor} -d ${POSTGRES_DB:-monitor}"]
       interval: 5s
@@ -22,9 +25,16 @@ services:
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
+    environment:
+      # guest/guest в проде — учётка по умолчанию, известная всем; она же открывает
+      # management UI. Пароль подставляется в RABBITMQ_URL, поэтому берите его
+      # без символов, требующих URL-экранирования (@ : / ?)
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
     ports:
       - "5672:5672"
       - "15672:15672"
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 5s
@@ -36,7 +46,7 @@ services:
     environment:
       # API ходит в БД непривилегированной ролью — иначе RLS обходится суперпользователем
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_APP_USER:-monitor_app}:${POSTGRES_APP_PASSWORD:-monitor_app}@postgres:5432/${POSTGRES_DB:-monitor}
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-change-me}
       # development | production: в production запрещены дефолтные JWT-секреты
       ENVIRONMENT: ${ENVIRONMENT:-development}
@@ -73,6 +83,14 @@ services:
     ports:
       - "8000:8000"
     restart: unless-stopped
+    # /health отвечает без обращения к БД — это liveness самого процесса;
+    # готовность зависимостей проверяет /ready, его дёргает внешний мониторинг
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
     depends_on:
       postgres:
         condition: service_healthy
@@ -84,7 +102,7 @@ services:
     command: sh -c "alembic upgrade head && python -m app.workers.scheduler"
     environment:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-monitor}:${POSTGRES_PASSWORD:-monitor}@postgres:5432/${POSTGRES_DB:-monitor}
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-change-me}
       # нужен шедулеру: в enterprise он применяет мин. интервал тарифа на лету
       DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-team}
@@ -107,7 +125,7 @@ services:
     command: python -m app.workers.http_worker
     environment:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_APP_USER:-monitor_app}:${POSTGRES_APP_PASSWORD:-monitor_app}@postgres:5432/${POSTGRES_DB:-monitor}
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-change-me}
       # SSRF-защита: true разрешает мониторить приватные адреса (on-prem)
       ALLOW_PRIVATE_TARGETS: ${ALLOW_PRIVATE_TARGETS:-false}
@@ -145,7 +163,7 @@ services:
       dockerfile: Dockerfile.browser
     environment:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_APP_USER:-monitor_app}:${POSTGRES_APP_PASSWORD:-monitor_app}@postgres:5432/${POSTGRES_DB:-monitor}
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-change-me}
       # SSRF-защита: true разрешает мониторить приватные адреса (on-prem)
       ALLOW_PRIVATE_TARGETS: ${ALLOW_PRIVATE_TARGETS:-false}

@@ -159,6 +159,38 @@ def test_api_accepts_public_hostname_without_dns(client, auth_headers):
     assert response.status_code == 201
 
 
+def test_api_rejects_placeholder_in_monitor_url(client, auth_headers):
+    # ${NAME} подставляется только в шагах browser-сценария: в URL монитора такой
+    # адрес и до воркера дошёл бы литералом, и SSRF-проверку обходил
+    payload = {**MONITOR_PAYLOAD, "url": "https://${INTERNAL_HOST}/health"}
+    response = client.post("/api/v1/monitors", json=payload, headers=auth_headers)
+    assert response.status_code == 400
+    assert "placeholder" in response.json()["detail"].lower()
+
+
+def test_api_rejects_placeholder_url_on_update(client, auth_headers):
+    assert client.post("/api/v1/monitors", json=MONITOR_PAYLOAD, headers=auth_headers).status_code == 201
+    updated = client.put(
+        f"/api/v1/monitors/{MONITOR_PAYLOAD['id']}",
+        json={"url": "https://${INTERNAL_HOST}/health"},
+        headers=auth_headers,
+    )
+    assert updated.status_code == 400
+
+
+def test_browser_steps_still_accept_placeholders(client, auth_headers):
+    payload = {
+        "id": "shop-login",
+        "type": "browser",
+        "interval": 300,
+        "steps": [
+            {"action": "goto", "url": "https://shop.example/login?token=${SHOP_TOKEN}"},
+            {"action": "type", "selector": "#password", "value": "${SHOP_PASSWORD}"},
+        ],
+    }
+    assert client.post("/api/v1/monitors", json=payload, headers=auth_headers).status_code == 201
+
+
 def test_api_rejects_private_url_via_config_upload(client, auth_headers):
     config = {
         "content": "version: 1\nmonitors:\n  - id: internal\n    type: http\n    url: http://10.0.0.1/\n    interval: 60\n",

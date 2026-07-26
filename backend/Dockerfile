@@ -15,6 +15,12 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
+# процесс не должен идти от root: код и зависимости ему только на чтение,
+# а порт 8000 непривилегированный. Пользователь создаётся после COPY, чтобы
+# файлы остались принадлежать root — контейнер не сможет переписать сам себя
+RUN useradd --system --create-home --uid 10001 appuser
+USER appuser
+
 # миграции применяет scheduler (суперпользователь БД); backend ходит ролью
 # monitor_app без DDL-прав — alembic здесь падал бы на CREATE TABLE
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
