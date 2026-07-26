@@ -45,7 +45,11 @@ def db_session_factory():
 
 
 @pytest.fixture()
-def client(db_session_factory):
+def client(db_session_factory, monkeypatch):
+    # лимитеры ходят в БД своей сессией (они работают и в middleware, где
+    # зависимостей FastAPI нет) — направляем её в тестовую базу
+    monkeypatch.setattr("app.core.ratelimit.SessionLocal", db_session_factory)
+
     def override_get_db():
         db = db_session_factory()
         try:

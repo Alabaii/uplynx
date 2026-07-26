@@ -316,6 +316,25 @@ class MaintenanceWindow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
+class RateLimitHit(Base):
+    """Одна засчитанная попытка для скользящего окна rate-limit.
+
+    Счётчики лежат в БД, а не в памяти процесса: иначе каждая реплика API
+    считает свои пять попыток входа, и защита от перебора слабеет пропорционально
+    их числу. Просроченные строки чистятся при следующей попытке того же ключа,
+    а брошенные ключи — суточной уборкой шедулера.
+    """
+
+    __tablename__ = "rate_limit_hits"
+    __table_args__ = (Index("ix_rate_limit_hits_scope_key_at", "scope", "key", "hit_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # login / register / forgot / verify / mutation — у каждого своё окно
+    scope: Mapped[str] = mapped_column(String(20), nullable=False)
+    key: Mapped[str] = mapped_column(String(320), nullable=False)
+    hit_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
 class OrgSecret(Base):
     """Секрет воркспейса для browser-сценариев: подстановка ${NAME} в шаги.
 
