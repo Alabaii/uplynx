@@ -1,6 +1,7 @@
+import time
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -10,6 +11,24 @@ from app.schemas import PublicOverallStatus, PublicStatusMonitor, PublicStatusRe
 from app.services.uptime import collect_uptime_stats
 
 router = APIRouter()
+
+# Страница публичная и без авторизации, а собирает агрегат uptime за сутки —
+# без кэша каждый анонимный запрос заставляет БД считать заново. Кэш короткий:
+# статус-страница и не обязана быть секундно свежей. Размер ограничен числом
+# организаций с включённой страницей.
+CACHE_TTL_SECONDS = 15
+_cache: dict[str, tuple[float, PublicStatusRead]] = {}
+
+
+def cached_status(org_slug: str) -> PublicStatusRead | None:
+    entry = _cache.get(org_slug)
+    if entry is None:
+        return None
+    expires_at, payload = entry
+    if expires_at <= time.monotonic():
+        _cache.pop(org_slug, None)
+        return None
+    return payload
 
 
 def overall_status(statuses: set[str]) -> PublicOverallStatus:
@@ -22,16 +41,24 @@ def overall_status(statuses: set[str]) -> PublicOverallStatus:
 
 
 @router.get("/{org_slug}", response_model=PublicStatusRead)
-def public_status(org_slug: str, db: Session = Depends(get_db)) -> PublicStatusRead:
+def public_status(org_slug: str, response: Response, db: Session = Depends(get_db)) -> PublicStatusRead:
     """Публичная статус-страница: без авторизации, только имена и статусы мониторов.
 
     RLS: app.org_id не выставлен (нет get_current_org_member) — политика пропускает,
     поэтому фильтрация по org_id во всех запросах явная.
     """
+    response.headers["Cache-Control"] = f"public, max-age={CACHE_TTL_SECONDS}"
+    # проверка доступности страницы — всегда живая (один индексный запрос):
+    # выключение страницы владельцем должно срабатывать сразу, а не через TTL.
+    # Под кэшем только агрегат uptime, ради которого всё и затевалось.
     org = db.scalar(select(Organization).where(Organization.slug == org_slug))
     if not org or not org.status_page_enabled:
         # выключенная страница неотличима от несуществующей организации
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Status page not found")
+
+    cached = cached_status(org_slug)
+    if cached is not None:
+        return cached
 
     monitors = db.scalars(
         select(Monitor).where(Monitor.org_id == org.id, Monitor.enabled.is_(True)).order_by(Monitor.slug)
@@ -53,7 +80,7 @@ def public_status(org_slug: str, db: Session = Depends(get_db)) -> PublicStatusR
         monitor.id: org_wide_maintenance or monitor.id in maintenance_ids for monitor in monitors
     }
 
-    return PublicStatusRead(
+    payload = PublicStatusRead(
         organization=org.name,
         updated_at=now,
         # мониторы в обслуживании не влияют на общий статус (как pending)
@@ -69,3 +96,5 @@ def public_status(org_slug: str, db: Session = Depends(get_db)) -> PublicStatusR
             for monitor in monitors
         ],
     )
+    _cache[org_slug] = (time.monotonic() + CACHE_TTL_SECONDS, payload)
+    return payload

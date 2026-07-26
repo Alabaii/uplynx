@@ -83,6 +83,14 @@ def test_status_page_uptime_null_without_checks(client, auth_headers, db_session
     assert monitor["last_check_at"] is None
 
 
+def fetch_status_fresh(client):
+    """Страница кэшируется на 15 секунд — в тестах про пересчёт кэш сбрасываем явно."""
+    from app.api.v1.endpoints.status import _cache
+
+    _cache.clear()
+    return client.get("/api/v1/status/default").json()
+
+
 def test_status_page_overall_priority(client, auth_headers, db_session_factory):
     enable_status_page(client, auth_headers)
     with db_session_factory() as db:
@@ -90,18 +98,18 @@ def test_status_page_overall_priority(client, auth_headers, db_session_factory):
         seed_monitor(db, "warmup", status="pending")
         db.commit()
     # up + pending: pending игнорируется
-    assert client.get("/api/v1/status/default").json()["overall"] == "operational"
+    assert fetch_status_fresh(client)["overall"] == "operational"
 
     with db_session_factory() as db:
         seed_monitor(db, "slow", status="degraded")
         db.commit()
-    assert client.get("/api/v1/status/default").json()["overall"] == "degraded"
+    assert fetch_status_fresh(client)["overall"] == "degraded"
 
     with db_session_factory() as db:
         seed_monitor(db, "broken", status="down")
         db.commit()
     # down приоритетнее degraded
-    assert client.get("/api/v1/status/default").json()["overall"] == "down"
+    assert fetch_status_fresh(client)["overall"] == "down"
 
 
 def test_status_page_toggle_owner_only_and_audited(client):
@@ -138,3 +146,44 @@ def test_me_returns_status_page_enabled(client, auth_headers):
     assert client.get("/api/v1/auth/me", headers=auth_headers).json()["organization"]["status_page_enabled"] is False
     enable_status_page(client, auth_headers)
     assert client.get("/api/v1/auth/me", headers=auth_headers).json()["organization"]["status_page_enabled"] is True
+
+
+def test_status_page_is_cached_briefly(client, auth_headers, monkeypatch):
+    from app.api.v1.endpoints import status as status_endpoint
+
+    status_endpoint._cache.clear()
+    client.patch("/api/v1/orgs/current", json={"status_page_enabled": True}, headers=auth_headers)
+    client.post(
+        "/api/v1/monitors",
+        json={"id": "first", "type": "http", "url": "https://example.com", "interval": 60},
+        headers=auth_headers,
+    )
+
+    first = client.get("/api/v1/status/default")
+    assert first.status_code == 200
+    assert first.headers["Cache-Control"] == "public, max-age=15"
+    assert [m["name"] for m in first.json()["monitors"]] == ["first"]
+
+    # монитор добавлен, но пока кэш жив — страница отдаёт прежний снимок
+    client.post(
+        "/api/v1/monitors",
+        json={"id": "second", "type": "http", "url": "https://example.com", "interval": 60},
+        headers=auth_headers,
+    )
+    assert [m["name"] for m in client.get("/api/v1/status/default").json()["monitors"]] == ["first"]
+
+    # по истечении TTL пересчитывается
+    status_endpoint._cache.clear()
+    assert [m["name"] for m in client.get("/api/v1/status/default").json()["monitors"]] == ["first", "second"]
+
+
+def test_disabled_status_page_is_not_served_from_cache(client, auth_headers):
+    from app.api.v1.endpoints import status as status_endpoint
+
+    status_endpoint._cache.clear()
+    client.patch("/api/v1/orgs/current", json={"status_page_enabled": True}, headers=auth_headers)
+    assert client.get("/api/v1/status/default").status_code == 200
+
+    # выключение страницы срабатывает сразу, а не по истечении TTL кэша
+    client.patch("/api/v1/orgs/current", json={"status_page_enabled": False}, headers=auth_headers)
+    assert client.get("/api/v1/status/default").status_code == 404
