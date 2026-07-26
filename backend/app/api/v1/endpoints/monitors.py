@@ -73,7 +73,12 @@ def active_maintenance_monitor_ids(db: Session, org_id: int, now: datetime) -> s
 
 
 def get_org_monitor(db: Session, org: Organization, slug: str) -> Monitor:
-    monitor = db.scalar(select(Monitor).where(Monitor.org_id == org.id, Monitor.slug == slug))
+    # архивный монитор для API не существует: слаг мог быть занят заново
+    monitor = db.scalar(
+        select(Monitor).where(
+            Monitor.org_id == org.id, Monitor.slug == slug, Monitor.archived_at.is_(None)
+        )
+    )
     if not monitor:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Monitor not found")
     return monitor
@@ -83,7 +88,11 @@ def get_org_monitor(db: Session, org: Organization, slug: str) -> Monitor:
 def list_monitors(
     ctx: OrgContext = Depends(get_current_org_member), db: Session = Depends(get_db)
 ) -> list[MonitorRead]:
-    monitors = db.scalars(select(Monitor).where(Monitor.org_id == ctx.org.id).order_by(Monitor.slug)).all()
+    monitors = db.scalars(
+        select(Monitor)
+        .where(Monitor.org_id == ctx.org.id, Monitor.archived_at.is_(None))
+        .order_by(Monitor.slug)
+    ).all()
     # один запрос активных окон на весь список — без N+1
     in_maintenance_ids = active_maintenance_monitor_ids(db, ctx.org.id, datetime.now(timezone.utc))
     org_wide = None in in_maintenance_ids
@@ -206,10 +215,18 @@ def delete_monitor(
     ctx: OrgContext = Depends(require_role("member")),
     db: Session = Depends(get_db),
 ) -> None:
+    """Архивирует монитор: он исчезает из продукта и освобождает слаг.
+
+    Строка и история проверок остаются в БД — удаление не рвёт внешние ключи
+    и остаётся восстановимым. Пауза (enabled=false) — отдельное действие.
+    """
     monitor = get_org_monitor(db, ctx.org, monitor_id)
+    monitor.archived_at = datetime.now(timezone.utc)
     monitor.enabled = False
     monitor.status = "paused"
     monitor.next_run_at = None
+    # сессия с autoflush=False: без flush снимок конфига ниже увидит монитор живым
+    db.flush()
     record(
         db,
         org_id=ctx.org.id,
@@ -233,6 +250,7 @@ def history(
     since_map = {"1h": timedelta(hours=1), "24h": timedelta(days=1), "7d": timedelta(days=7), "30d": timedelta(days=30)}
     query = select(CheckResult, Monitor).join(Monitor).where(
         Monitor.org_id == ctx.org.id,
+        Monitor.archived_at.is_(None),
         CheckResult.timestamp >= datetime.now(timezone.utc) - since_map[range],
     )
     if monitor_id:

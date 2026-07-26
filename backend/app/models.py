@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
@@ -135,7 +135,17 @@ class OrgMember(Base):
 class Monitor(Base):
     __tablename__ = "monitors"
     __table_args__ = (
-        UniqueConstraint("user_id", "slug", name="uq_monitor_user_slug"),
+        # Слаг уникален внутри ОРГАНИЗАЦИИ (раньше — внутри пользователя: участник
+        # двух организаций получал IntegrityError вместо 409 на одинаковом слаге)
+        # и освобождается архивацией — частичный индекс не видит archived_at.
+        Index(
+            "uq_monitor_org_slug_active",
+            "org_id",
+            "slug",
+            unique=True,
+            postgresql_where=text("archived_at IS NULL"),
+            sqlite_where=text("archived_at IS NULL"),
+        ),
         Index("ix_monitors_user_id", "user_id"),
         Index("ix_monitors_org_id", "org_id"),
         Index("ix_monitors_next_run_at", "next_run_at"),
@@ -157,6 +167,9 @@ class Monitor(Base):
     ssl_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # самый острый порог (в днях), по которому уже отправлен ssl-алерт; NULL — не алертили
     ssl_alerted_days: Mapped[int | None] = mapped_column(Integer)
+    # архивация: монитор исчезает из продукта и освобождает слаг, но строка и
+    # история проверок остаются в БД (восстановимо, не рвёт внешние ключи)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 

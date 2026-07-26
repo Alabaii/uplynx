@@ -65,7 +65,11 @@ def create_maintenance(
     monitor = None
     if payload.monitor_id is not None:
         monitor = db.scalar(
-            select(Monitor).where(Monitor.org_id == ctx.org.id, Monitor.slug == payload.monitor_id)
+            select(Monitor).where(
+                Monitor.org_id == ctx.org.id,
+                Monitor.slug == payload.monitor_id,
+                Monitor.archived_at.is_(None),
+            )
         )
         if not monitor:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Monitor not found")

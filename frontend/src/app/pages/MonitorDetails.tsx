@@ -9,6 +9,7 @@ import {
   RefreshCw,
   ServerCog,
   Siren,
+  Trash2,
   Zap,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
@@ -18,6 +19,7 @@ import {
   getHistory,
   getMonitor,
   getMonitorIncidents,
+  deleteMonitor,
   runCheckNow,
   type CheckResult,
   type Incident,
@@ -48,6 +50,10 @@ export default function MonitorDetails() {
       loadErrorTitle: 'Не удалось загрузить монитор',
       checkQueued: 'Проверка в очереди',
       checkNow: 'Проверить сейчас',
+      remove: 'Удалить',
+      confirmRemove: (name: string) =>
+        `Удалить монитор «${name}»? Он исчезнет из дашборда и перестанет проверяться. История сохранится, но вернуть монитор из интерфейса будет нельзя.`,
+      removeError: 'Не удалось удалить монитор.',
       viewHistory: 'Открыть историю',
       metricStatus: 'Статус',
       metricStatusHint: 'Текущее состояние монитора',
@@ -103,6 +109,10 @@ export default function MonitorDetails() {
       loadErrorTitle: 'Unable to load monitor',
       checkQueued: 'Check queued',
       checkNow: 'Check now',
+      remove: 'Delete',
+      confirmRemove: (name: string) =>
+        `Delete monitor "${name}"? It disappears from the dashboard and stops being checked. History is kept, but the monitor cannot be restored from the UI.`,
+      removeError: 'Unable to delete the monitor.',
       viewHistory: 'View history',
       metricStatus: 'Status',
       metricStatusHint: 'Current monitor state',
@@ -161,6 +171,7 @@ export default function MonitorDetails() {
   const [error, setError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [checkNowState, setCheckNowState] = useState<'idle' | 'queueing' | 'queued'>('idle');
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     let ignore = false;
@@ -195,6 +206,21 @@ export default function MonitorDetails() {
       ignore = true;
     };
   }, [id, range, refreshKey]);
+
+  const handleDelete = async () => {
+    if (!monitor || !window.confirm(t.confirmRemove(monitor.name))) {
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      await deleteMonitor(id);
+      navigate('/');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : t.removeError);
+      setIsDeleting(false);
+    }
+  };
 
   const handleCheckNow = async () => {
     setCheckNowState('queueing');
@@ -316,6 +342,15 @@ export default function MonitorDetails() {
             >
               {t.viewHistory}
               <ArrowRight className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={isDeleting}
+              className="inline-flex items-center gap-2 rounded-lg border border-secondary bg-card px-3 py-1.5 text-sm font-medium text-destructive transition-colors hover:border-destructive disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Trash2 className="h-4 w-4" />
+              {t.remove}
             </button>
           </div>
         </div>
