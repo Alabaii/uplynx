@@ -33,7 +33,12 @@ from app.schemas import (
 )
 from app.services.audit import record
 from app.services.email import email_enabled, send_email
-from app.services.orgs import enforce_member_quota, ensure_membership, get_or_create_default_org
+from app.services.orgs import (
+    create_personal_org,
+    enforce_member_quota,
+    ensure_membership,
+    get_or_create_default_org,
+)
 
 router = APIRouter()
 
@@ -151,9 +156,15 @@ def register(payload: UserCreate, request: Request, db: Session = Depends(get_db
     user = User(email=payload.email.lower(), hashed_password=hash_password(payload.password))
     db.add(user)
     db.flush()
-    # регистрация создаёт членство в default-организации — её quota_members действует и здесь
-    org = get_or_create_default_org(db)
-    enforce_member_quota(db, org)
+    if settings.deployment_mode == "enterprise":
+        # SaaS: регистрирующийся — владелец собственного воркспейса. Общая организация
+        # здесь означала бы, что клиенты платформы видят и правят мониторы друг друга
+        org = create_personal_org(db, user)
+    else:
+        # team-редакция: одна инсталляция = одна команда, все в общей организации,
+        # её quota_members действует и на регистрацию
+        org = get_or_create_default_org(db)
+        enforce_member_quota(db, org)
     ensure_membership(db, user, org)
     record(db, org_id=org.id, user_id=user.id, action="auth.register", entity="user", entity_id=str(user.id), payload={})
     verify_token = issue_verification_token(db, user) if verification_required() else None
