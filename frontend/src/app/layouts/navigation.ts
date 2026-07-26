@@ -1,5 +1,6 @@
 import {
   FileCode2,
+  KeyRound,
   LayoutDashboard,
   PlusCircle,
   Send,
@@ -17,6 +18,7 @@ export const navigation = [
   { to: '/monitors/new', label: 'New Monitor', labelRu: 'Новый монитор', icon: PlusCircle },
   { to: '/team', label: 'Team', labelRu: 'Команда', icon: Users },
   { to: '/telegram', label: 'Telegram', labelRu: 'Telegram', icon: Send },
+  { to: '/secrets', label: 'Secrets', labelRu: 'Секреты', icon: KeyRound },
 ];
 
 export function navLabel(item: { label: string; labelRu: string }, lang: Lang): string {

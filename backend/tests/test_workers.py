@@ -16,8 +16,13 @@ from app.workers.base import persist_result
 
 
 class FakeRunner:
-    async def run(self, task):
-        return {"status": "up", "response_time_ms": 5, "error": None, "details": {"task": task.task_id}}
+    async def run(self, task, secrets):
+        return {
+            "status": "up",
+            "response_time_ms": 5,
+            "error": None,
+            "details": {"task": task.task_id, "secrets": sorted(secrets)},
+        }
 
 
 @pytest.mark.asyncio
@@ -31,8 +36,10 @@ async def test_browser_worker_adapter_mocked():
         created_at="2026-01-01T00:00:00Z",
         attempt=1,
     )
-    result = await run_browser_check(task, runner=FakeRunner())
+    result = await run_browser_check(task, runner=FakeRunner(), secrets={"SHOP_TOKEN": "abc"})
     assert result["status"] == "up"
+    # секреты организации доходят до раннера и подставляются в шаги
+    assert result["details"]["secrets"] == ["SHOP_TOKEN"]
 
 
 @pytest.fixture()

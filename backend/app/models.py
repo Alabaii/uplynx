@@ -303,6 +303,33 @@ class MaintenanceWindow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
+class OrgSecret(Base):
+    """Секрет воркспейса для browser-сценариев: подстановка ${NAME} в шаги.
+
+    Раньше ${NAME} резолвился из окружения воркера — в SaaS это давало любому
+    арендатору ключи платформы (JWT_SECRET_KEY, DATABASE_URL) и секреты соседей.
+    Теперь значения принадлежат организации, шифруются тем же Fernet-ключом,
+    что и токен Telegram, и наружу (в API и в тексты ошибок) не отдаются.
+    """
+
+    __tablename__ = "org_secrets"
+    __table_args__ = (
+        UniqueConstraint("org_id", "name", name="uq_org_secret_name"),
+        Index("ix_org_secrets_org_id", "org_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    # имя плейсхолдера без ${}: ловится ENV_PLACEHOLDER_RE в services/checks.py
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    value_secret: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+
 class TelegramIntegration(Base):
     __tablename__ = "telegram_integrations"
     __table_args__ = (
