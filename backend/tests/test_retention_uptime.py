@@ -159,3 +159,91 @@ def test_monitors_uptime_viewer_access_and_org_isolation(client, monkeypatch):
     switched = client.post(f"/api/v1/orgs/{created.json()['id']}/switch", headers=owner)
     other_headers = {"Authorization": f"Bearer {switched.json()['access_token']}"}
     assert client.get("/api/v1/monitors/uptime", headers=other_headers).json() == []
+
+
+def seed_org_with_history(db, slug: str, plan_slug: str, days_ago: int):
+    """Организация на тарифе plan_slug с одной проверкой days_ago дней назад."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.models import CheckResult, Monitor, Organization, User
+
+    user = User(email=f"{slug}@example.com", hashed_password="x")
+    org = Organization(name=slug, slug=slug, plan_slug=plan_slug)
+    db.add_all([user, org])
+    db.flush()
+    monitor = Monitor(
+        user_id=user.id,
+        org_id=org.id,
+        slug=f"{slug}-site",
+        name="Site",
+        type="http",
+        status="up",
+        url="https://example.com",
+        interval=60,
+        config_json={},
+        enabled=True,
+    )
+    db.add(monitor)
+    db.flush()
+    db.add(
+        CheckResult(
+            monitor_id=monitor.id,
+            task_id=f"{slug}-old",
+            status="up",
+            response_time_ms=100,
+            details={},
+            timestamp=datetime.now(timezone.utc) - timedelta(days=days_ago),
+        )
+    )
+    db.commit()
+    return monitor.id
+
+
+def test_retention_follows_plan_in_enterprise(db_session_factory, monkeypatch):
+    from sqlalchemy import select
+
+    from app.core.config import get_settings
+    from app.models import CheckResult, UptimeDaily
+    from app.services.plans import ensure_default_plans
+    from app.services.retention import rollup_and_prune
+
+    monkeypatch.setattr(get_settings(), "deployment_mode", "enterprise")
+
+    with db_session_factory() as db:
+        ensure_default_plans(db)
+        # проверке 60 дней: для free (30 дней) она просрочена, для pro (365) — нет
+        free_monitor = seed_org_with_history(db, "freeorg", "free", days_ago=60)
+        pro_monitor = seed_org_with_history(db, "proorg", "pro", days_ago=60)
+
+        rollup_and_prune(db)
+
+        remaining = {row.monitor_id for row in db.scalars(select(CheckResult)).all()}
+        assert free_monitor not in remaining, "история free старше 30 дней должна быть свёрнута"
+        assert pro_monitor in remaining, "у pro срок хранения 365 дней — трогать нельзя"
+
+        # свёрнутый день не потерян: агрегат остался
+        aggregate = db.scalar(select(UptimeDaily).where(UptimeDaily.monitor_id == free_monitor))
+        assert aggregate is not None
+        assert aggregate.checks_total == 1
+        assert aggregate.checks_up == 1
+
+
+def test_retention_ignores_plan_in_team_mode(db_session_factory, monkeypatch):
+    from sqlalchemy import select
+
+    from app.core.config import get_settings
+    from app.models import CheckResult
+    from app.services.plans import ensure_default_plans
+    from app.services.retention import rollup_and_prune
+
+    # team: тарифы декоративны, действует общий RETENTION_DAYS
+    monkeypatch.setattr(get_settings(), "deployment_mode", "team")
+
+    with db_session_factory() as db:
+        ensure_default_plans(db)
+        free_monitor = seed_org_with_history(db, "selfhosted", "free", days_ago=60)
+
+        rollup_and_prune(db)
+
+        remaining = {row.monitor_id for row in db.scalars(select(CheckResult)).all()}
+        assert free_monitor in remaining
