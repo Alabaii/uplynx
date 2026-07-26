@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
@@ -135,7 +135,17 @@ class OrgMember(Base):
 class Monitor(Base):
     __tablename__ = "monitors"
     __table_args__ = (
-        UniqueConstraint("user_id", "slug", name="uq_monitor_user_slug"),
+        # Слаг уникален внутри ОРГАНИЗАЦИИ (раньше — внутри пользователя: участник
+        # двух организаций получал IntegrityError вместо 409 на одинаковом слаге)
+        # и освобождается архивацией — частичный индекс не видит archived_at.
+        Index(
+            "uq_monitor_org_slug_active",
+            "org_id",
+            "slug",
+            unique=True,
+            postgresql_where=text("archived_at IS NULL"),
+            sqlite_where=text("archived_at IS NULL"),
+        ),
         Index("ix_monitors_user_id", "user_id"),
         Index("ix_monitors_org_id", "org_id"),
         Index("ix_monitors_next_run_at", "next_run_at"),
@@ -157,6 +167,9 @@ class Monitor(Base):
     ssl_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # самый острый порог (в днях), по которому уже отправлен ssl-алерт; NULL — не алертили
     ssl_alerted_days: Mapped[int | None] = mapped_column(Integer)
+    # архивация: монитор исчезает из продукта и освобождает слаг, но строка и
+    # история проверок остаются в БД (восстановимо, не рвёт внешние ключи)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
@@ -180,7 +193,9 @@ class SchedulerHeartbeat(Base):
 class CheckResult(Base):
     __tablename__ = "check_results"
     __table_args__ = (
-        UniqueConstraint("task_id", name="uq_check_results_task_id"),
+        # на партиционированной таблице уникальность обязана включать ключ
+        # партиционирования — в БД после 0006 это пара (task_id, timestamp)
+        UniqueConstraint("task_id", "timestamp", name="uq_check_results_task_id"),
         Index("ix_check_results_monitor_timestamp", "monitor_id", "timestamp"),
     )
 
@@ -301,6 +316,52 @@ class MaintenanceWindow(Base):
     note: Mapped[str | None] = mapped_column(String(300))
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class RateLimitHit(Base):
+    """Одна засчитанная попытка для скользящего окна rate-limit.
+
+    Счётчики лежат в БД, а не в памяти процесса: иначе каждая реплика API
+    считает свои пять попыток входа, и защита от перебора слабеет пропорционально
+    их числу. Просроченные строки чистятся при следующей попытке того же ключа,
+    а брошенные ключи — суточной уборкой шедулера.
+    """
+
+    __tablename__ = "rate_limit_hits"
+    __table_args__ = (Index("ix_rate_limit_hits_scope_key_at", "scope", "key", "hit_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # login / register / forgot / verify / mutation — у каждого своё окно
+    scope: Mapped[str] = mapped_column(String(20), nullable=False)
+    key: Mapped[str] = mapped_column(String(320), nullable=False)
+    hit_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class OrgSecret(Base):
+    """Секрет воркспейса для browser-сценариев: подстановка ${NAME} в шаги.
+
+    Раньше ${NAME} резолвился из окружения воркера — в SaaS это давало любому
+    арендатору ключи платформы (JWT_SECRET_KEY, DATABASE_URL) и секреты соседей.
+    Теперь значения принадлежат организации, шифруются тем же Fernet-ключом,
+    что и токен Telegram, и наружу (в API и в тексты ошибок) не отдаются.
+    """
+
+    __tablename__ = "org_secrets"
+    __table_args__ = (
+        UniqueConstraint("org_id", "name", name="uq_org_secret_name"),
+        Index("ix_org_secrets_org_id", "org_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    # имя плейсхолдера без ${}: ловится ENV_PLACEHOLDER_RE в services/checks.py
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    value_secret: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
 
 
 class TelegramIntegration(Base):

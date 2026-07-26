@@ -321,3 +321,23 @@ def test_legacy_token_without_org_claim_still_works(client, auth_headers):
     body = client.get("/api/v1/auth/me", headers=legacy_headers).json()
     assert body["organization"]["slug"] == "default"
     assert client.get("/api/v1/monitors", headers=legacy_headers).status_code == 200
+
+
+def test_config_upload_rejects_oversized_content(client, auth_headers):
+    from app.schemas import MAX_CONFIG_BYTES
+
+    oversized = {"content": "x" * (MAX_CONFIG_BYTES + 1), "format": "yaml"}
+    assert client.post("/api/v1/config", json=oversized, headers=auth_headers).status_code == 422
+
+
+def test_config_upload_rejects_too_many_monitors(client, auth_headers):
+    from app.schemas import MAX_CONFIG_MONITORS
+
+    # лимиты тарифа считают только включённые мониторы: без потолка на размер
+    # документа тысячи выключенных прошли бы проверку и создали столько же строк
+    entries = "".join(
+        f"  - id: m{i}\n    type: http\n    url: https://example.com\n    interval: 60\n    enabled: false\n"
+        for i in range(MAX_CONFIG_MONITORS + 1)
+    )
+    payload = {"content": f"version: 1\nmonitors:\n{entries}", "format": "yaml"}
+    assert client.post("/api/v1/config", json=payload, headers=auth_headers).status_code == 400

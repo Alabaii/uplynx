@@ -42,6 +42,10 @@ services:
       ENVIRONMENT: ${ENVIRONMENT:-development}
       # comma-separated список origin'ов фронтенда для CORS
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      # сколько доверенных прокси перед nginx приложения: 0 — nginx смотрит наружу
+      # сам, 1 — перед ним TLS-терминатор (Caddy из DEPLOY.md). От этого зависит,
+      # какую запись X-Forwarded-For считать адресом клиента в rate-limit
+      TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-0}
       # Fernet-ключ шифрования секретов (bot token); если пуст — деривируется из JWT_SECRET_KEY
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
       # team (лимиты пользователей/мониторов) | enterprise (без лимитов)

@@ -74,9 +74,62 @@ def test_validate_jwt_secret():
     validate_jwt_secret(Settings(environment="development", jwt_secret_key="change-me-in-production"))
 
 
+def test_validate_secret_encryption_key():
+    from cryptography.fernet import Fernet
+
+    from app.core.config import Settings, validate_secret_encryption_key
+
+    valid_key = Fernet.generate_key().decode()
+
+    # в production ключ обязан быть задан явно: иначе он деривируется из
+    # JWT-секрета и ротация последнего убивает расшифровку сохранённых секретов
+    with pytest.raises(RuntimeError, match="SECRET_ENCRYPTION_KEY is not set"):
+        validate_secret_encryption_key(Settings(environment="production", secret_encryption_key=None))
+    validate_secret_encryption_key(Settings(environment="production", secret_encryption_key=valid_key))
+
+    # dev/self-hosted живут на деривации — только предупреждение
+    validate_secret_encryption_key(Settings(environment="development", secret_encryption_key=None))
+
+    # мусорный ключ ловим на старте, а не на первой расшифровке
+    with pytest.raises(RuntimeError, match="not a valid Fernet key"):
+        validate_secret_encryption_key(Settings(environment="development", secret_encryption_key="too-short"))
+
+
 def test_encrypt_decrypt_secret_round_trip():
     from app.core.security import decrypt_secret, encrypt_secret
 
     encrypted = encrypt_secret("123456:token")
     assert encrypted != "123456:token"
     assert decrypt_secret(encrypted) == "123456:token"
+
+
+@pytest.mark.asyncio
+async def test_read_capped_body_truncates_large_response():
+    from app.services.checks import MAX_BODY_BYTES, read_capped_body
+
+    class FakeResponse:
+        encoding = "utf-8"
+
+        async def aiter_bytes(self):
+            # «бесконечный» ответ: без потолка воркер утянул бы его целиком
+            for _ in range(100):
+                yield b"x" * 100_000
+
+    body, truncated = await read_capped_body(FakeResponse())
+    assert truncated is True
+    assert len(body) == MAX_BODY_BYTES
+
+
+@pytest.mark.asyncio
+async def test_read_capped_body_keeps_small_response_intact():
+    from app.services.checks import read_capped_body
+
+    class FakeResponse:
+        encoding = "utf-8"
+
+        async def aiter_bytes(self):
+            yield b"all good"
+
+    body, truncated = await read_capped_body(FakeResponse())
+    assert body == "all good"
+    assert truncated is False

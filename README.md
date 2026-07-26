@@ -1,501 +1,99 @@
-# PWA Monitor
+<div align="center">
 
-Полноценная платформа для мониторинга веб-сайтов с HTTP и Browser проверками, интеграцией с Telegram и конфигурацией через YAML/JSON.
+# Uplynx
 
-## Обзор
+**Мониторинг сайтов и API, которому можно доверить свой сон.**
 
-- **Frontend**: React (Vite) PWA с возможностью работы офлайн, дизайн по брендбуку (см. `frontend/DESIGN_SPEC.md`)
-- **Backend**: FastAPI с JWT аутентификацией
-- **Database**: PostgreSQL с Alembic миграциями
-- **Queue**: RabbitMQ для распределения задач
-- **Workers**: Отдельные HTTP и Browser (Playwright) воркеры
-- **Alerts**: Telegram Bot — уведомления при смене статуса монитора (down / degraded / recovered)
+Проверки каждые 10 секунд · Реальный браузер вместо пинга · Алерты в Telegram, push и email · Публичные статус-страницы
 
-## Режимы развёртывания
+[![CI](https://github.com/Alabaii/uplynx/actions/workflows/ci.yml/badge.svg)](https://github.com/Alabaii/uplynx/actions/workflows/ci.yml)
 
-Платформа поставляется в двух редакциях, переключаемых переменной `DEPLOYMENT_MODE` (архитектура — в `ENTERPRISE_PLAN.md`):
+</div>
 
-- `team` (по умолчанию) — одна команда: лимиты 20 пользователей и 100 активных мониторов (настраиваются `TEAM_MAX_USERS` / `TEAM_MAX_MONITORS`).
-- `enterprise` — без встроенных лимитов; мультикомандная модель (организации) описана в `ENTERPRISE_PLAN.md` и внедряется поэтапно.
+---
 
-Текущий режим и лимиты отдаёт публичный эндпоинт `GET /api/v1/meta`.
+Каждая минута простоя стоит денег, клиентов и репутации — и хуже всего, когда о сбое вы узнаёте из сообщения недовольного пользователя. Uplynx узнаёт первым: проверяет ваши сайты, API и целые пользовательские сценарии, открывает инцидент в момент падения и будит вас только тогда, когда это действительно важно.
 
-## Переменные окружения
+Один сервис закрывает весь цикл: **проверка → инцидент → алерт → восстановление → отчёт клиентам** на публичной статус-странице.
 
-Полный список — в `.env.example`. Ключевые:
+## Возможности
 
-| Переменная | Назначение |
-|---|---|
-| `JWT_SECRET_KEY` | Секрет подписи JWT. В `ENVIRONMENT=production` запуск с дефолтным значением невозможен |
-| `SECRET_ENCRYPTION_KEY` | Fernet-ключ шифрования Telegram bot-токенов в БД (иначе деривируется из JWT-секрета) |
-| `CORS_ORIGINS` | Разрешённые origins через запятую (по умолчанию `http://localhost:5173`) |
-| `ENVIRONMENT` | `development` / `production` |
-| `DEPLOYMENT_MODE` | `team` / `enterprise` |
-| `SMTP_HOST` | SMTP-сервер для писем; если пуст — email-канал отключён |
-| `APP_BASE_URL` | Базовый URL приложения для ссылок в письмах (по умолчанию `http://localhost:5173`) |
-| `SUPERUSER_EMAILS` | Email платформенных админов через запятую — доступ к `/admin` (метрики, тарифы, организации); пусто — админ-панель недоступна |
+### 🔍 Мониторинг без слепых зон
 
-## Email (SMTP)
-
-Email-канал включается переменной `SMTP_HOST` и покрывает три сценария: сброс пароля
-(`/forgot-password`), письмо участнику при добавлении в организацию и email-алерты о смене
-статуса мониторов (адреса настраивает owner на странице Alerts, до 10).
+- **HTTP-проверки** — код ответа, подстрока в теле, порог времени ответа. Медленный — ещё не мёртвый: превышение порога даёт статус *degraded*, а не ложную тревогу.
+- **Browser-сценарии на реальном Chromium** — «открой страницу → залогинься → проверь текст». Главная может отвечать 200, пока оплата лежит; Uplynx проверяет то, что делает пользователь, а не только то, что отвечает сервер.
+- **Интервалы от 10 секунд** и кнопка «Проверить сейчас» вне расписания.
+- **SSL-мониторинг из коробки** — срок сертификата снимается при каждой проверке, предупреждения за 30, 14, 7 и 1 день до истечения.
 
-Переменные: `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_USERNAME`/`SMTP_PASSWORD` (пусто — без
-авторизации), `SMTP_FROM`, `SMTP_STARTTLS` (true), `APP_BASE_URL` — полный список в
-`.env.example`. Без `SMTP_HOST` фича выключена и это нормально: эндпоинты отвечают как обычно,
-письма просто не отправляются (пишется лог), UI честно показывает, что email не настроен.
-Для локальной проверки удобен MailHog (`SMTP_HOST=mailhog`, `SMTP_PORT=1025`, `SMTP_STARTTLS=false`).
+### 🔔 Алерты, которые не спамят
 
-## Бэкапы и восстановление
-
-Сервис `backup` (в составе compose) снимает `pg_dump` в формате custom в `./backups`:
-первый дамп — сразу при старте, дальше раз в `BACKUP_INTERVAL_SECONDS` (сутки),
-хранится `BACKUP_KEEP` (7) свежих дампов. Каталог `./backups` — на хосте: регулярно
-копируйте его на внешнее хранилище, локальный дамп не переживёт смерть диска.
-
-Проверка восстановимости (не трогает рабочую БД — поднимает временный контейнер,
-восстанавливает свежий дамп и печатает счётчики):
-
-```bash
-deploy/restore-check.sh              # свежайший дамп из ./backups
-deploy/restore-check.sh backups/uplynx-20260710-120000.dump
-```
-
-Реальное восстановление после потери БД:
-
-```bash
-docker compose down
-docker volume rm <проект>_postgres-data          # только при невосстановимом томе!
-docker compose up -d postgres                     # init-скрипт создаст роли заново
-docker compose cp backups/<дамп> postgres:/tmp/restore.dump
-docker compose exec postgres pg_restore -U monitor -d monitor /tmp/restore.dump
-docker compose up -d
-```
-
-## Требования
-
-- Docker и Docker Compose
-- Node.js 18+ (для локальной разработки фронтенда)
-- Python 3.11+ (для локальной разработки бэкенда)
-
-## Быстрый старт
-
-1. Клонируйте репозиторий:
-```bash
-git clone <repository-url>
-cd pwa-monitor
-```
-
-2. Создайте файл `.env` на основе `.env.example`:
-```bash
-copy .env.example .env
-# Отредактируйте .env, заменив секретные ключи
-```
-
-3. Запустите все сервисы:
-```bash
-docker-compose up --build
-```
-
-4. Доступные сервисы после запуска:
-- Frontend: http://localhost:5173
-- Backend API: http://localhost:8000
-- RabbitMQ Management: http://localhost:15672 (guest/guest)
-
-## Ручное тестирование
-
-### 1. Проверка работы бэкенда
-
-**Health check:**
-```bash
-curl http://localhost:8000/health
-```
-
-**Readiness check:**
-```bash
-curl http://localhost:8000/ready
-```
-
-### 2. Регистрация и аутентификация
-
-**Регистрация пользователя:**
-```bash
-curl -X POST http://localhost:8000/api/v1/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"email": "test@example.com", "password": "securepass123"}'
-```
-
-**Логин:**
-```bash
-curl -X POST http://localhost:8000/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email": "test@example.com", "password": "securepass123"}'
-```
-
-Сохраните полученный JWT токен для дальнейших запросов:
-```bash
-TOKEN="your-jwt-token-here"
-```
-
-### 3. Работа с конфигурацией
-
-**Получить текущую конфигурацию:**
-```bash
-curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8000/api/v1/config
-```
-
-**Загрузить YAML конфигурацию:**
-```bash
-curl -X POST http://localhost:8000/api/v1/config \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: text/yaml" \
-  --data-binary @config.yaml
-```
-
-Пример `config.yaml`:
-```yaml
-version: 1
-monitors:
-  - id: homepage
-    type: http
-    url: https://example.com
-    interval: 60
-    enabled: true
-    confirmations: 3        # анти-флаппинг: статус меняется после 3 одинаковых результатов подряд
-    expected:
-      status: 200
-      response_time_ms: 1500  # ответ медленнее порога -> статус degraded
-```
-
-**Скачать конфигурацию:**
-```bash
-curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8000/api/v1/config/download \
-  -o downloaded-config.yaml
-```
-
-**Просмотр версий:**
-```bash
-curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8000/api/v1/config/versions
-```
-
-**Откат к предыдущей версии:**
-```bash
-curl -X POST http://localhost:8000/api/v1/config/rollback \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"version": 1}'
-```
-
-### 4. Работа с мониторами
-
-**Список всех мониторов:**
-```bash
-curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8000/api/v1/monitors
-```
-
-**Создать монитор:**
-```bash
-curl -X POST http://localhost:8000/api/v1/monitors \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "id": "api-health",
-    "type": "http",
-    "url": "https://api.example.com/health",
-    "interval": 30,
-    "enabled": true
-  }'
-```
-
-**Получить детали монитора:**
-```bash
-curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8000/api/v1/monitors/{monitor_id}
-```
-
-**Обновить монитор:**
-```bash
-curl -X PUT http://localhost:8000/api/v1/monitors/{monitor_id} \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"interval": 60}'
-```
-
-**Удалить (деактивировать) монитор:**
-```bash
-curl -X DELETE -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8000/api/v1/monitors/{monitor_id}
-```
-
-### 5. Просмотр истории проверок
-
-**История с фильтрами:**
-```bash
-curl -H "Authorization: Bearer $TOKEN" \
-  "http://localhost:8000/api/v1/history?monitor_id=1&status=down&range=24h"
-```
-
-Доступные фильтры:
-- `monitor_id`: ID монитора
-- `status`: up, down, degraded (мониторы без единой проверки имеют статус `pending`)
-- `range`: 1h, 24h, 7d, 30d
-
-### 6. Telegram интеграция
-
-**Подключить Telegram бота:**
-```bash
-curl -X POST http://localhost:8000/api/v1/telegram/connect \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "bot_token": "YOUR_BOT_TOKEN",
-    "chat_id": "YOUR_CHAT_ID",
-    "alert_scopes": ["down", "degraded", "recovered"]
-  }'
-```
-
-**Тест Telegram уведомления:**
-```bash
-curl -X POST http://localhost:8000/api/v1/telegram/test \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-### 7. Проверка работы воркеров
-
-1. Создайте HTTP монитор с интервалом 60 секунд
-2. Дождитесь 1-2 минуты
-3. Проверьте историю:
-```bash
-curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8000/api/v1/history
-```
-
-4. Проверьте логи воркеров:
-```bash
-docker-compose logs worker-http
-```
-
-### 8. Browser проверки
-
-**Создать browser монитор:**
-```bash
-curl -X POST http://localhost:8000/api/v1/monitors \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "id": "login-flow",
-    "type": "browser",
-    "interval": 300,
-    "steps": [
-      {"action": "goto", "url": "https://example.com/login"},
-      {"action": "wait_for", "selector": "#username"},
-      {"action": "type", "selector": "#username", "text": "test@example.com"},
-      {"action": "type", "selector": "#password", "text": "${MONITOR_PASSWORD}"},
-      {"action": "click", "selector": "button[type=\"submit\"]"},
-      {"action": "assert_url", "contains": "/dashboard"},
-      {"action": "assert_text", "selector": "h1", "text": "Welcome"}
-    ]
-  }'
-```
-
-Поддерживаемые действия: `goto`, `click`, `type`, `wait_for` (дождаться появления элемента),
-`assert_url` (текущий URL содержит подстроку `contains`), `assert_text` (текст элемента по `selector`
-или всей страницы, если `selector` не задан).
-
-Плейсхолдеры вида `${MONITOR_PASSWORD}` подставляются из переменных окружения browser-воркера
-в момент выполнения шага — секреты не хранятся в конфиге и не попадают в историю проверок.
-Если переменная не задана, проверка падает с ошибкой `environment variable 'MONITOR_PASSWORD' is not set`.
-При падении шага в details результата сохраняются номер шага и JPEG-скриншот страницы.
-
-Проверьте логи browser worker:
-```bash
-docker-compose logs worker-browser
-```
-
-### 9. Проверка RabbitMQ
-
-Откройте RabbitMQ Management UI: http://localhost:15672
-- Логин: guest
-- Пароль: guest
-
-Проверьте:
-- Очереди `http_checks` и `browser_checks`
-- Количество сообщений
-- Подключенные consumers
-
-## Запуск тестов
-
-### Backend тесты
-
-```bash
-cd backend
-python -m pytest
-```
-
-### Frontend e2e (Playwright)
-
-```bash
-cd frontend
-npm install
-npm run e2e
-```
-
-Playwright сам поднимает бэкенд (sqlite) и фронтенд — Docker не нужен.
-
-## Структура проекта
-
-```
-pwa-monitor/
-├── backend/                 # FastAPI backend
-│   ├── app/
-│   │   ├── api/v1/         # API endpoints
-│   │   ├── core/           # Config, database, security
-│   │   ├── models.py       # SQLAlchemy модели
-│   │   ├── schemas.py      # Pydantic схемы
-│   │   ├── services/       # Business logic
-│   │   └── workers/        # Scheduler и workers
-│   ├── tests/              # Тесты
-│   ├── alembic/            # Миграции
-│   ├── Dockerfile
-│   └── requirements.txt
-├── frontend/              # React (Vite) PWA
-│   ├── src/app/           # Страницы, компоненты, api-клиент
-│   ├── e2e/               # Playwright e2e
-│   └── DESIGN_SPEC.md     # Дизайн-спецификация из Figma-брендбука
-├── docker-compose.yml     # Docker Compose конфиг
-├── .env.example          # Пример env файла
-├── ENTERPRISE_PLAN.md    # Архитектура редакций team/enterprise
-├── BACKEND_PLAN.md       # Backend план
-├── PLAN.md              # Frontend план
-├── prd.md               # Product requirements
-└── README.md            # Этот файл
-```
-
-## Устранение неполадок
-
-### База данных не запускается
-
-Проверьте логи:
-```bash
-docker-compose logs postgres
-```
-
-Очистите volume если нужно:
-```bash
-docker-compose down -v
-docker-compose up --build
-```
-
-### RabbitMQ не доступен
-
-Проверьте healthcheck:
-```bash
-docker-compose exec rabbitmq rabbitmq-diagnostics ping
-```
-
-### Воркеры не обрабатывают задачи
-
-1. Проверьте подключение к RabbitMQ:
-```bash
-docker-compose logs worker-http
-```
-
-2. Проверьте очереди в RabbitMQ Management UI
-
-3. Убедитесь, что мониторы включены (`enabled: true`)
-
-### Telegram не отправляет сообщения
-
-1. Проверьте bot token и chat_id
-2. Убедитесь, что бот добавлен в чат
-3. Проверьте логи backend:
-```bash
-docker-compose logs backend
-```
-
-## Локальная разработка
-
-### Backend
-
-```bash
-cd backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
-```
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-## Продакшен деплой
-
-Dev-compose поднимает фронтенд vite-dev-сервером — для сервера используйте
-продакшен-оверлей: фронтенд собирается в статику и раздаётся nginx-ом с
-same-origin прокси `/api` на бэкенд (PWA-фичи — offline и push — работают
-только в production-сборке и только по HTTPS).
-
-1. Создайте `.env` из `.env.example` и заполните секреты:
-```bash
-cp .env.example .env
-# Обязательно: JWT_SECRET_KEY (длинная случайная строка),
-# SECRET_ENCRYPTION_KEY (Fernet: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"),
-# POSTGRES_PASSWORD и POSTGRES_APP_PASSWORD,
-# VAPID-ключи для push: python -m app.tools.vapid (из backend/)
-```
-
-2. Запустите продакшен-стек:
-```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
-```
-`ENVIRONMENT=production` включается автоматически (запуск с дефолтным
-JWT-секретом невозможен); порты postgres/rabbitmq наружу не публикуются;
-приложение доступно на `HTTP_PORT` (по умолчанию 80).
-
-3. TLS: поставьте перед `HTTP_PORT` reverse-proxy с сертификатом — например,
-Caddy (`reverse_proxy localhost:80` + автоматический Let's Encrypt) или
-nginx + certbot. HTTPS обязателен для установки PWA и push-уведомлений.
+- **Каналы**: Telegram-бот, web-push (в том числе на телефон), email до 10 адресов на команду.
+- **Анти-флаппинг** — статус меняется только после N одинаковых результатов подряд: мигнувший запрос не разбудит вас в три ночи.
+- **Повторные напоминания**, пока сервис не восстановлен — «всё ещё лежит, 40 минут».
+- **Окна обслуживания** — на время плановых работ проверки не выполняются: статистика не портится, алерты молчат.
+
+### 📊 Инциденты и история
+
+Каждый сбой — это инцидент с началом, длительностью, худшей степенью и причиной, а не строчка в логе. История проверок хранится до года с автоматической суточной агрегацией, график времени ответа — на странице каждого монитора.
+
+### 📣 Статус-страница для ваших клиентов
+
+Публичная страница состояния сервисов включается одним переключателем. Пусть клиенты видят «всё работает» сами — вместо того чтобы писать в поддержку.
+
+### ⚙️ Конфигурация как код
+
+Мониторы редактируются и в интерфейсе, и как YAML — обе стороны всегда синхронизированы. Каждое изменение версионируется, откат к любой версии — в один клик. Конфиг можно хранить в своём репозитории и загружать через API.
+
+### 👥 Команда
+
+Общий воркспейс с ролями от наблюдателя до владельца и аудитом каждого действия — кто, что и когда поменял. В enterprise-режиме — несколько организаций с квотами и переключением в один клик.
+
+### 📱 Интерфейс
+
+Устанавливается как приложение (PWA) на телефон и десктоп, работает офлайн с кэшем последних данных. Командная палитра `Ctrl+K`, тёплый минималистичный дизайн, русский и английский языки с переключением на лету.
 
 ## Безопасность
 
-- JWT_SECRET_KEY должен быть длинным случайным строковым значением
-- POSTGRES_PASSWORD должен быть уникальным
-- Telegram bot tokens никогда не должны коммититься в git
-- Всегда используйте HTTPS в продакшене
-- Регулярно обновляйте зависимости
+| Слой | Что сделано |
+|---|---|
+| Данные команд | Row-Level Security в PostgreSQL: изоляция организаций на уровне БД, а не только кода |
+| Сессии | Короткоживущий access-токен + ротация refresh; предъявление украденного токена гасит все сессии |
+| Сеть | Трёхуровневая SSRF-защита: мониторы не могут сканировать внутреннюю инфраструктуру |
+| Перебор | Rate-limit на вход, регистрацию и все мутирующие запросы |
+| Браузер | Строгий CSP, HSTS, запрет встраивания во фреймы |
+| Секреты | Токены интеграций шифруются, пароли — только необратимые хэши |
+| Диск | Суточные бэкапы PostgreSQL с ротацией и скриптом проверки восстановимости |
 
-### Row-Level Security (защита в глубину)
+## Под капотом
 
-Миграция 0008 включает PostgreSQL RLS: строки организаций изолируются политиками по `org_id`
-(API выставляет `app.org_id` на каждый запрос). **RLS действует только для непривилегированных
-ролей** — суперпользователь обходит политики. Поэтому API и воркеры подключаются ролью
-`monitor_app` (`POSTGRES_APP_USER`/`POSTGRES_APP_PASSWORD`), а суперпользователь `monitor`
-остаётся только для миграций (scheduler).
+FastAPI + PostgreSQL + RabbitMQ на бэкенде, React + Vite (PWA) на фронтенде. Пять независимых процессов: API, шедулер с честным распределением проверок между командами, HTTP- и browser-воркеры, сервис бэкапов. Очереди с dead-letter (ни одна проверка не теряется молча), heartbeat шедулера для внешнего проба, метрики Prometheus и ошибки в Sentry на каждом процессе. Воркеры масштабируются горизонтально одной командой.
 
-- Новые инсталляции: роль создаётся автоматически (`deploy/postgres-init.sh` через
-  docker-entrypoint-initdb.d).
-- Существующие тома: выполните SQL из `deploy/postgres-init.sh` вручную
-  (`docker compose exec postgres psql -U monitor -d monitor`), затем перезапустите сервисы.
+## Тарифы
 
-Проверка: `SET app.org_id = '999'; SELECT COUNT(*) FROM monitors;` под ролью `monitor_app`
-должна вернуть 0.
+Оплата в рублях картой или через СБП. Смена тарифа в любой момент — при переходе вниз лишние мониторы ставятся на паузу, данные не удаляются.
 
-### Аудит действий
+| | Free | Pro | Business |
+|---|---|---|---|
+| Цена | 0 ₽ | 990 ₽/мес | 3 990 ₽/мес |
+| Мониторы | 5 | 50 | 200 |
+| Мин. интервал | 5 мин | 1 мин | 10 сек |
+| Browser-проверки | — | 5 | 25 |
+| Команда | 1 | 5 | без лимита |
+| История | 30 дней | 1 год | 1 год |
 
-Все изменяющие действия (мониторы, конфиг, Telegram, участники, организации) пишутся в
-`audit_log` атомарно с самим действием. Просмотр: `GET /api/v1/orgs/current/audit` (роль
-admin+) или карточка «Recent activity» на странице Team.
+Актуальные условия — на странице `/pricing` работающего сервиса.
 
-## Лицензия
+---
 
-MIT
+## Запуск локально
+
+Нужен только Docker. Стек целиком — база, очередь, API, воркеры, фронтенд:
+
+```bash
+git clone https://github.com/Alabaii/uplynx.git && cd uplynx
+docker compose up --build
+```
+
+Через пару минут: интерфейс — http://localhost:5173, API — http://localhost:8000, панель RabbitMQ — http://localhost:15672 (guest/guest). Первый зарегистрированный пользователь становится владельцем воркспейса. Все настройки — переменные окружения с разумными дефолтами, полный список в `.env.example`; необязательные интеграции (SMTP, web-push, Sentry) выключены, пока не заданы их переменные.
+
+Продакшен-вариант (nginx-статика, закрытые порты, обязательные секреты) поднимается оверлеем `docker-compose.prod.yml` за вашим TLS-прокси. Тесты: `pytest` в `backend/`, `npm run typecheck && npm run e2e` в `frontend/`.

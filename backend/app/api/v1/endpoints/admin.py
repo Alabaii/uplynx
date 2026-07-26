@@ -80,12 +80,19 @@ def overview(
     return AdminOverview(
         users_total=db.scalar(select(func.count()).select_from(User)) or 0,
         orgs_total=db.scalar(select(func.count()).select_from(Organization)) or 0,
-        monitors_total=db.scalar(select(func.count()).select_from(Monitor)) or 0,
+        # архивные мониторы в метриках платформы не считаем — они уже не работают
+        monitors_total=db.scalar(
+            select(func.count()).select_from(Monitor).where(Monitor.archived_at.is_(None))
+        ) or 0,
         monitors_enabled=db.scalar(
-            select(func.count()).select_from(Monitor).where(Monitor.enabled.is_(True))
+            select(func.count())
+            .select_from(Monitor)
+            .where(Monitor.enabled.is_(True), Monitor.archived_at.is_(None))
         ) or 0,
         monitors_browser=db.scalar(
-            select(func.count()).select_from(Monitor).where(Monitor.type == "browser")
+            select(func.count())
+            .select_from(Monitor)
+            .where(Monitor.type == "browser", Monitor.archived_at.is_(None))
         ) or 0,
         checks_24h=db.scalar(
             select(func.count()).select_from(CheckResult).where(CheckResult.timestamp >= day_ago)
@@ -135,7 +142,10 @@ def list_orgs(_: User = Depends(require_superuser), db: Session = Depends(get_db
         select(OrgMember.org_id, func.count().label("members_count")).group_by(OrgMember.org_id).subquery()
     )
     monitors = (
-        select(Monitor.org_id, func.count().label("monitors_count")).group_by(Monitor.org_id).subquery()
+        select(Monitor.org_id, func.count().label("monitors_count"))
+        .where(Monitor.archived_at.is_(None))
+        .group_by(Monitor.org_id)
+        .subquery()
     )
     rows = db.execute(
         select(Organization, members.c.members_count, monitors.c.monitors_count)
@@ -185,7 +195,11 @@ def set_org_plan(
     )
     db.commit()
     members_count = db.scalar(select(func.count()).select_from(OrgMember).where(OrgMember.org_id == org.id)) or 0
-    monitors_count = db.scalar(select(func.count()).select_from(Monitor).where(Monitor.org_id == org.id)) or 0
+    monitors_count = db.scalar(
+        select(func.count())
+        .select_from(Monitor)
+        .where(Monitor.org_id == org.id, Monitor.archived_at.is_(None))
+    ) or 0
     return AdminOrgRead(
         id=org.id,
         name=org.name,

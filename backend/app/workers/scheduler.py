@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
+from app.core.ratelimit import purge_stale_rate_limits
 from app.core.observability import (
     DLQ_DEPTH,
     SCHEDULER_OVERDUE_MONITORS,
@@ -176,8 +177,14 @@ def run_forever() -> None:
                 with SessionLocal() as db:
                     ensure_partitions(db)
                     archived_days, pruned_rows = rollup_and_prune(db)
+                    # ключи, которые перестали обращаться, сами себя не вычистят
+                    stale_limits = purge_stale_rate_limits(db)
+                    db.commit()
                 logger.info(
-                    "retention rollup: archived %s monitor-days, pruned %s raw results", archived_days, pruned_rows
+                    "retention rollup: archived %s monitor-days, pruned %s raw results, %s stale rate-limit rows",
+                    archived_days,
+                    pruned_rows,
+                    stale_limits,
                 )
             except Exception:  # noqa: BLE001
                 logger.exception("retention rollup failed")

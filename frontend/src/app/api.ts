@@ -445,6 +445,12 @@ export function createMonitor(payload: {
   });
 }
 
+export function deleteMonitor(id: string) {
+  return request<void>(`/monitors/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
 export function runCheckNow(id: string) {
   return request<{ queued: boolean; task_id: string }>(`/monitors/${encodeURIComponent(id)}/check`, {
     method: 'POST',
@@ -605,6 +611,30 @@ export function connectTelegram(payload: { bot_token: string; chat_id: string; a
 export function testTelegram() {
   return request<{ ok: boolean; detail: string }>('/telegram/test', {
     method: 'POST',
+  });
+}
+
+export type OrgSecret = {
+  name: string;
+  created_at: string;
+  updated_at: string;
+  created_by_email: string | null;
+};
+
+export function listSecrets() {
+  return request<OrgSecret[]>('/secrets');
+}
+
+export function upsertSecret(name: string, value: string) {
+  return request<OrgSecret>(`/secrets/${encodeURIComponent(name)}`, {
+    method: 'PUT',
+    body: { name, value },
+  });
+}
+
+export function deleteSecret(name: string) {
+  return request<void>(`/secrets/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
   });
 }
 

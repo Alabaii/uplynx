@@ -47,6 +47,7 @@ def task_for_monitor(monitor: Monitor, timeout_seconds: int = 30) -> CheckTask:
     return CheckTask(
         task_id=str(uuid4()),
         monitor_id=monitor.id,
+        org_id=monitor.org_id,
         type=monitor.type,  # type: ignore[arg-type]
         url=monitor.url,
         config=monitor.config_json or {},

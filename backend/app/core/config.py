@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     deployment_mode: Literal["team", "enterprise"] = "team"
     team_max_users: int = 20
     team_max_monitors: int = 100
+    # сколько ДОВЕРЕННЫХ прокси стоит перед nginx приложения (он дописывает свой
+    # адрес в X-Forwarded-For сам). 0 — nginx смотрит в интернет напрямую;
+    # 1 — перед ним TLS-терминатор (Caddy из DEPLOY.md). Значение больше реального
+    # означало бы доверие к подделанной клиентом части заголовка, поэтому
+    # безопасный дефолт — 0 (см. client_ip в endpoints/auth.py).
+    trusted_proxy_hops: int = Field(default=0, ge=0)
     login_rate_limit_attempts: int = 5
     login_rate_limit_window_seconds: int = 60
     register_rate_limit_attempts: int = 10
@@ -91,6 +97,55 @@ def validate_jwt_secret(settings: Settings) -> None:
     if settings.environment == "production":
         raise RuntimeError(message)
     logging.getLogger(__name__).warning(message)
+
+
+def validate_secret_encryption_key(settings: Settings) -> None:
+    """SECRET_ENCRYPTION_KEY обязателен в production и не должен зависеть от JWT-секрета.
+
+    Без него ключ шифрования деривируется из JWT_SECRET_KEY (см. core/security.py).
+    Тогда ротация JWT-секрета — например, после его утечки — необратимо ломает
+    расшифровку токенов Telegram и секретов воркспейсов: данные остаются в БД,
+    но прочитать их уже нечем. Разделяем ключи, пока это ещё ничего не стоит.
+    """
+    from cryptography.fernet import Fernet
+
+    if not settings.secret_encryption_key:
+        message = (
+            "SECRET_ENCRYPTION_KEY is not set: the encryption key is derived from JWT_SECRET_KEY, "
+            "so rotating the JWT secret would make stored secrets unreadable. Generate one with "
+            "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+        )
+        if settings.environment == "production":
+            raise RuntimeError(message)
+        logging.getLogger(__name__).warning(message)
+        return
+    try:
+        Fernet(settings.secret_encryption_key.encode("utf-8"))
+    except Exception as exc:  # noqa: BLE001 — падаем на старте, а не на первой расшифровке
+        raise RuntimeError(
+            "SECRET_ENCRYPTION_KEY is not a valid Fernet key (expected 32 url-safe base64-encoded bytes)"
+        ) from exc
+
+def validate_cors_origins(settings: Settings) -> None:
+    """В production запрещаем '*': вместе с allow_credentials это снимает CORS совсем.
+
+    Starlette при allow_origins=['*'] и allow_credentials=True отражает Origin
+    запроса обратно, то есть любой сайт сможет ходить в API с куками и заголовками
+    пользователя. Опечатка в .env не должна стоить так дорого.
+    """
+    origins = settings.cors_origins_list
+    logger = logging.getLogger(__name__)
+    if "*" in origins:
+        message = "CORS_ORIGINS contains '*' while credentials are allowed; list the frontend origins explicitly"
+        if settings.environment == "production":
+            raise RuntimeError(message)
+        logger.warning(message)
+        return
+    malformed = [origin for origin in origins if not origin.startswith(("http://", "https://"))]
+    if malformed:
+        # частая ошибка: домен без схемы — браузер такой origin не сопоставит,
+        # и запросы фронтенда молча начнут блокироваться
+        raise RuntimeError(f"CORS_ORIGINS entries must include a scheme: {', '.join(malformed)}")
 
 
 @lru_cache

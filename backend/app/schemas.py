@@ -143,7 +143,7 @@ class BrowserStep(BaseModel):
 
 class ExpectedHttp(BaseModel):
     status: int | None = Field(default=None, ge=100, le=599)
-    body_contains: str | None = None
+    body_contains: str | None = Field(default=None, max_length=1000)
     response_time_ms: int | None = Field(default=None, ge=1)
 
 
@@ -176,13 +176,21 @@ class ConfigMonitor(BaseModel):
         return value
 
 
+# Потолки на загружаемый конфиг: лимиты тарифа считают только ВКЛЮЧЁННЫЕ
+# мониторы, поэтому без них документ с сотней тысяч выключенных проходил бы
+# проверку и создавал столько же строк. Значения с большим запасом к самому
+# щедрому тарифу (200 мониторов), обычный конфиг их не достигает.
+MAX_CONFIG_BYTES = 512_000
+MAX_CONFIG_MONITORS = 1000
+
+
 class ConfigDocument(BaseModel):
     version: int = 1
-    monitors: list[ConfigMonitor] = Field(default_factory=list)
+    monitors: list[ConfigMonitor] = Field(default_factory=list, max_length=MAX_CONFIG_MONITORS)
 
 
 class ConfigUpload(BaseModel):
-    content: str
+    content: str = Field(max_length=MAX_CONFIG_BYTES)
     format: Literal["yaml", "json"] = "yaml"
 
 
@@ -225,7 +233,8 @@ class MonitorUpdate(BaseModel):
     expected: ExpectedHttp | None = None
     steps: list[BrowserStep] | None = None
     enabled: bool | None = None
-    status: MonitorStatus | None = None
+    # статус считает пайплайн проверок: разрешать его выставлять извне значит
+    # позволить нарисовать «up» на публичной статус-странице лежащего сервиса
     confirmations: int | None = Field(default=None, ge=1, le=10)
     renotify_interval_minutes: int | None = Field(default=None, ge=1, le=1440)
 
@@ -335,12 +344,29 @@ class PublicStatusRead(BaseModel):
 class CheckTask(BaseModel):
     task_id: str
     monitor_id: int
+    # организация монитора: по ней воркер поднимает секреты сценария.
+    # Сами значения в очередь не кладём — тело сообщения переживает воркер в DLQ.
+    org_id: int | None = None
     type: MonitorType
     url: str | None = None
     config: dict[str, Any] = Field(default_factory=dict)
     timeout_seconds: int = 30
     created_at: datetime
     attempt: int = 1
+
+
+class OrgSecretUpsert(BaseModel):
+    # имя обязано совпадать с плейсхолдером ${NAME} в шагах сценария
+    name: str = Field(min_length=1, max_length=80, pattern=r"^[A-Z][A-Z0-9_]*$")
+    value: str = Field(min_length=1, max_length=4096)
+
+
+class OrgSecretRead(BaseModel):
+    # значение не возвращается никогда — ни целиком, ни маской
+    name: str
+    created_at: datetime
+    updated_at: datetime
+    created_by_email: str | None = None
 
 
 class TelegramConnect(BaseModel):
