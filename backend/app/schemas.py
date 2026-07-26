@@ -335,12 +335,29 @@ class PublicStatusRead(BaseModel):
 class CheckTask(BaseModel):
     task_id: str
     monitor_id: int
+    # организация монитора: по ней воркер поднимает секреты сценария.
+    # Сами значения в очередь не кладём — тело сообщения переживает воркер в DLQ.
+    org_id: int | None = None
     type: MonitorType
     url: str | None = None
     config: dict[str, Any] = Field(default_factory=dict)
     timeout_seconds: int = 30
     created_at: datetime
     attempt: int = 1
+
+
+class OrgSecretUpsert(BaseModel):
+    # имя обязано совпадать с плейсхолдером ${NAME} в шагах сценария
+    name: str = Field(min_length=1, max_length=80, pattern=r"^[A-Z][A-Z0-9_]*$")
+    value: str = Field(min_length=1, max_length=4096)
+
+
+class OrgSecretRead(BaseModel):
+    # значение не возвращается никогда — ни целиком, ни маской
+    name: str
+    created_at: datetime
+    updated_at: datetime
+    created_by_email: str | None = None
 
 
 class TelegramConnect(BaseModel):

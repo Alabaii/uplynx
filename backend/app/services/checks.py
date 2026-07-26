@@ -1,5 +1,4 @@
 import asyncio
-import os
 import re
 import socket
 import ssl
@@ -15,6 +14,8 @@ from app.core.ssrf import BlockedTargetError, validate_public_url
 from app.schemas import CheckTask
 
 ENV_PLACEHOLDER_RE = re.compile(r"\$\{([A-Z0-9_]+)\}")
+
+SECRET_MASK = "***"
 
 # формат notAfter в getpeercert(): 'Jun  1 12:00:00 2027 GMT'
 CERT_DATE_FORMAT = "%b %d %H:%M:%S %Y %Z"
@@ -48,7 +49,7 @@ def ssl_details(expires_at: datetime | None) -> dict[str, Any] | None:
 
 
 class BrowserRunner(Protocol):
-    async def run(self, task: CheckTask) -> dict[str, Any]: ...
+    async def run(self, task: CheckTask, secrets: dict[str, str]) -> dict[str, Any]: ...
 
 
 def classify_http_result(elapsed_ms: int, status_code: int, body_text: str, expected: dict[str, Any]) -> tuple[str, str | None]:
@@ -103,14 +104,20 @@ async def run_http_check(task: CheckTask) -> dict[str, Any]:
         return {"status": "down", "response_time_ms": None, "error": str(exc), "details": {}}
 
 
-def resolve_env_placeholders(step: dict) -> dict:
-    """Подставляет плейсхолдеры ${VAR_NAME} из окружения воркера (PRD 5.10)."""
+def resolve_placeholders(step: dict, secrets: dict[str, str]) -> dict:
+    """Подставляет ${NAME} из секретов организации (services/secrets.py).
+
+    Раньше значения брались из os.environ воркера — арендатор мог шагом
+    goto на свой домен унести ключи платформы и секреты соседних организаций.
+    Теперь доступны только секреты своего воркспейса; неизвестное имя — ошибка,
+    а не пустая строка: тест логина не должен «проходить» с пустым паролем.
+    """
 
     def substitute(match: re.Match[str]) -> str:
         name = match.group(1)
-        value = os.environ.get(name)
+        value = secrets.get(name)
         if value is None:
-            raise ValueError(f"environment variable '{name}' is not set")
+            raise ValueError(f"secret '{name}' is not defined for this workspace")
         return value
 
     resolved = dict(step)
@@ -120,11 +127,23 @@ def resolve_env_placeholders(step: dict) -> dict:
     return resolved
 
 
+def redact_secrets(text: str, secrets: dict[str, str]) -> str:
+    """Вычищает подставленные значения секретов из текста ошибки.
+
+    Playwright кладёт в сообщение уже подставленный URL/селектор, а текст
+    ошибки уходит в check_results.error и виден всей организации в истории.
+    """
+    for value in secrets.values():
+        if value:
+            text = text.replace(value, SECRET_MASK)
+    return text
+
+
 class StepFailure(Exception):
     """Падение конкретного шага сценария: хранит индекс и исходный шаг для диагностики."""
 
-    def __init__(self, index: int, step: dict[str, Any], original: Exception) -> None:
-        super().__init__(f"step {index} ({step.get('action')}): {original}")
+    def __init__(self, index: int, step: dict[str, Any], original: Exception, secrets: dict[str, str]) -> None:
+        super().__init__(f"step {index} ({step.get('action')}): {redact_secrets(str(original), secrets)}")
         self.index = index
         self.step = step
         self.original = original
@@ -138,10 +157,11 @@ def failed_step_details(failure: StepFailure) -> dict[str, Any]:
     return details
 
 
-async def execute_steps(page: Any, steps: list[dict[str, Any]]) -> None:
+async def execute_steps(page: Any, steps: list[dict[str, Any]], secrets: dict[str, str] | None = None) -> None:
+    secrets = secrets or {}
     for index, raw_step in enumerate(steps, start=1):
         try:
-            step = resolve_env_placeholders(raw_step)
+            step = resolve_placeholders(raw_step, secrets)
             action = step.get("action")
             if action == "goto":
                 # проверяем уже подставленный URL: ${VAR} не даёт валидировать его в API
@@ -171,11 +191,11 @@ async def execute_steps(page: Any, steps: list[dict[str, Any]]) -> None:
             else:
                 raise ValueError(f"unsupported browser action: {action}")
         except Exception as exc:  # noqa: BLE001
-            raise StepFailure(index, raw_step, exc) from exc
+            raise StepFailure(index, raw_step, exc, secrets) from exc
 
 
 class PlaywrightBrowserRunner:
-    async def run(self, task: CheckTask) -> dict[str, Any]:
+    async def run(self, task: CheckTask, secrets: dict[str, str]) -> dict[str, Any]:
         from playwright.async_api import async_playwright
 
         steps = task.config.get("steps") or []
@@ -187,7 +207,7 @@ class PlaywrightBrowserRunner:
                     page = await browser.new_page()
                     page.set_default_timeout(task.timeout_seconds * 1000)
                     try:
-                        await execute_steps(page, steps)
+                        await execute_steps(page, steps, secrets)
                     except StepFailure as failure:
                         return {
                             "status": "down",
@@ -202,14 +222,22 @@ class PlaywrightBrowserRunner:
                         "status": "up",
                         "response_time_ms": int((time.perf_counter() - started) * 1000),
                         "error": None,
-                        "details": {"steps": len(steps), "final_url": page.url},
+                        # секрет мог стоять в query последнего URL — в историю он не идёт
+                        "details": {"steps": len(steps), "final_url": redact_secrets(page.url, secrets)},
                     }
                 finally:
                     await browser.close()
         except Exception as exc:  # noqa: BLE001
-            return {"status": "down", "response_time_ms": None, "error": str(exc), "details": {"steps": len(steps)}}
+            return {
+                "status": "down",
+                "response_time_ms": None,
+                "error": redact_secrets(str(exc), secrets),
+                "details": {"steps": len(steps)},
+            }
 
 
-async def run_browser_check(task: CheckTask, runner: BrowserRunner | None = None) -> dict[str, Any]:
+async def run_browser_check(
+    task: CheckTask, runner: BrowserRunner | None = None, secrets: dict[str, str] | None = None
+) -> dict[str, Any]:
     runner = runner or PlaywrightBrowserRunner()
-    return await runner.run(task)
+    return await runner.run(task, secrets or {})

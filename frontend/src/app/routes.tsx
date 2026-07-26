@@ -17,6 +17,7 @@ const Incidents = React.lazy(() => import('./pages/Incidents'));
 const Maintenance = React.lazy(() => import('./pages/Maintenance'));
 const ConfigEditor = React.lazy(() => import('./pages/ConfigEditor'));
 const TelegramSettings = React.lazy(() => import('./pages/Telegram'));
+const Secrets = React.lazy(() => import('./pages/Secrets'));
 const Team = React.lazy(() => import('./pages/Team'));
 const StatusPage = React.lazy(() => import('./pages/StatusPage'));
 const Admin = React.lazy(() => import('./pages/Admin'));
@@ -79,6 +80,7 @@ export const router = createBrowserRouter([
       { path: 'monitors/:id/history', element: withSuspense(<History />) },
       { path: 'config', element: withSuspense(<ConfigEditor />) },
       { path: 'telegram', element: withSuspense(<TelegramSettings />) },
+      { path: 'secrets', element: withSuspense(<Secrets />) },
       { path: 'team', element: withSuspense(<Team />) },
       { path: 'admin', element: withSuspense(<Admin />) },
       { path: '*', element: <Navigate to="/" replace /> },

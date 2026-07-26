@@ -608,6 +608,30 @@ export function testTelegram() {
   });
 }
 
+export type OrgSecret = {
+  name: string;
+  created_at: string;
+  updated_at: string;
+  created_by_email: string | null;
+};
+
+export function listSecrets() {
+  return request<OrgSecret[]>('/secrets');
+}
+
+export function upsertSecret(name: string, value: string) {
+  return request<OrgSecret>(`/secrets/${encodeURIComponent(name)}`, {
+    method: 'PUT',
+    body: { name, value },
+  });
+}
+
+export function deleteSecret(name: string) {
+  return request<void>(`/secrets/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+  });
+}
+
 export type PushConfig = {
   enabled: boolean;
   public_key: string | null;
