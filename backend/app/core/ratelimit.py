@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
@@ -24,11 +25,29 @@ class DatabaseRateLimiter:
         self.max_attempts = max_attempts
         self.window_seconds = window_seconds
 
+    def _lock_window(self, db: Session, key: str) -> None:
+        """Сериализует окно одного ключа между репликами до конца транзакции.
+
+        Подсчёт попыток и запись новой обязаны быть неделимы: иначе параллельный
+        залп читает один и тот же count до вставок и проходит целиком — пять
+        разрешённых попыток входа превращаются в сколько угодно одновременных.
+        Лок берётся на пару (scope, key), поэтому разные ключи не мешают друг другу.
+        """
+        if db.get_bind().dialect.name != "postgresql":
+            # sqlite (тесты, self-hosted одиночный процесс) пишет с блокировкой всей БД
+            return
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"{self.scope}:{key}"})
+
     def hit(self, key: str) -> float | None:
-        """Регистрирует попытку. None — разрешено; иначе секунды до разблокировки."""
+        """Регистрирует попытку. None — разрешено; иначе секунды до разблокировки.
+
+        Синхронная: в async-коде вызывать через asyncio.to_thread — иначе три
+        запроса к БД выполняются прямо в event loop.
+        """
         now = datetime.now(timezone.utc)
         window_start = now - timedelta(seconds=self.window_seconds)
         with SessionLocal() as db:
+            self._lock_window(db, key)
             db.execute(
                 delete(RateLimitHit).where(
                     RateLimitHit.scope == self.scope,
