@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.endpoints.auth import client_ip
 from app.api.v1.router import api_router
-from app.core.config import get_settings, validate_jwt_secret
+from app.core.config import get_settings, validate_jwt_secret, validate_secret_encryption_key
 from app.core.database import check_database, get_db
 from app.core.observability import HTTP_REQUEST_SECONDS, HTTP_REQUESTS, init_sentry
 from app.core.ratelimit import get_mutation_limiter
@@ -20,6 +20,7 @@ from app.models import Monitor, SchedulerHeartbeat
 
 settings = get_settings()
 validate_jwt_secret(settings)
+validate_secret_encryption_key(settings)
 init_sentry("api")
 
 app = FastAPI(title=settings.app_name)
