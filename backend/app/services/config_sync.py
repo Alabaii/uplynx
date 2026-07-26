@@ -23,11 +23,18 @@ def validate_target_url(url: str | None) -> None:
     """Быстрая (без DNS) проверка URL монитора при создании/загрузке конфига.
 
     Полную проверку с резолвом делает воркер перед запросом; здесь — мгновенный
-    фидбек на литеральный приватный IP / localhost. URL с плейсхолдером ${VAR}
-    пропускаем: реальное значение известно только воркеру.
+    фидбек на литеральный приватный IP / localhost.
     """
-    if not url or "${" in url:
+    if not url:
         return
+    if "${" in url:
+        # подстановка секретов работает только в шагах browser-сценария: HTTP-воркер
+        # отправил бы запрос на литеральный ${NAME}, и монитор молча не работал бы.
+        # Заодно такой URL проскакивал мимо SSRF-проверки — её нечем было применить
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Secret placeholders ${NAME} are substituted only in browser scenario steps, not in the monitor URL",
+        )
     try:
         validate_public_url(url, allow_private=get_settings().allow_private_targets, resolve=False)
     except BlockedTargetError as exc:
