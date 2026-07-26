@@ -20,6 +20,10 @@ SECRET_MASK = "***"
 # формат notAfter в getpeercert(): 'Jun  1 12:00:00 2027 GMT'
 CERT_DATE_FORMAT = "%b %d %H:%M:%S %Y %Z"
 
+# потолок на читаемое тело ответа: монитор могут навести на большой файл,
+# и воркер утянул бы его целиком в память
+MAX_BODY_BYTES = 2_000_000
+
 
 def parse_cert_not_after(not_after: str) -> datetime:
     return datetime.strptime(not_after, CERT_DATE_FORMAT).replace(tzinfo=timezone.utc)
@@ -66,6 +70,26 @@ def classify_http_result(elapsed_ms: int, status_code: int, body_text: str, expe
     return "up", None
 
 
+async def read_capped_body(response: httpx.Response) -> tuple[str, bool]:
+    """Читает тело ответа не больше MAX_BODY_BYTES; возвращает (текст, обрезано ли).
+
+    Без потолка монитор, наведённый на большой файл, забирал бы его целиком
+    в память воркера. Для проверки доступности и поиска подстроки начала
+    ответа достаточно.
+    """
+    chunks: list[bytes] = []
+    size = 0
+    truncated = False
+    async for chunk in response.aiter_bytes():
+        chunks.append(chunk)
+        size += len(chunk)
+        if size >= MAX_BODY_BYTES:
+            truncated = True
+            break
+    raw = b"".join(chunks)[:MAX_BODY_BYTES]
+    return raw.decode(response.encoding or "utf-8", errors="replace"), truncated
+
+
 async def run_http_check(task: CheckTask) -> dict[str, Any]:
     if not task.url:
         return {"status": "down", "response_time_ms": None, "error": "missing url", "details": {}}
@@ -84,10 +108,14 @@ async def run_http_check(task: CheckTask) -> dict[str, Any]:
             follow_redirects=True,
             event_hooks={"request": [guard_request]},
         ) as client:
-            response = await client.get(task.url)
+            async with client.stream("GET", task.url) as response:
+                body, truncated = await read_capped_body(response)
         elapsed = int((time.perf_counter() - started) * 1000)
-        check_status, error = classify_http_result(elapsed, response.status_code, response.text, expected)
+        check_status, error = classify_http_result(elapsed, response.status_code, body, expected)
         details: dict[str, Any] = {"status_code": response.status_code}
+        if truncated:
+            # body_contains искали только в прочитанной части — это должно быть видно
+            details["body_truncated_at_bytes"] = MAX_BODY_BYTES
         # хост отвечает — заодно снимаем срок сертификата (blocking socket → отдельный поток)
         ssl_info = ssl_details(await asyncio.to_thread(fetch_ssl_expiry, task.url))
         if ssl_info:

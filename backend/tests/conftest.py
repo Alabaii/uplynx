@@ -17,6 +17,15 @@ from app.main import app
 
 
 @pytest.fixture(autouse=True)
+def reset_status_page_cache():
+    from app.api.v1.endpoints.status import _cache
+
+    _cache.clear()
+    yield
+    _cache.clear()
+
+
+@pytest.fixture(autouse=True)
 def reset_rate_limiters():
     # лимитеры живут в памяти процесса — между тестами их состояние сбрасывается
     get_login_limiter.cache_clear()

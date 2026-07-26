@@ -143,7 +143,7 @@ class BrowserStep(BaseModel):
 
 class ExpectedHttp(BaseModel):
     status: int | None = Field(default=None, ge=100, le=599)
-    body_contains: str | None = None
+    body_contains: str | None = Field(default=None, max_length=1000)
     response_time_ms: int | None = Field(default=None, ge=1)
 
 
@@ -176,13 +176,21 @@ class ConfigMonitor(BaseModel):
         return value
 
 
+# Потолки на загружаемый конфиг: лимиты тарифа считают только ВКЛЮЧЁННЫЕ
+# мониторы, поэтому без них документ с сотней тысяч выключенных проходил бы
+# проверку и создавал столько же строк. Значения с большим запасом к самому
+# щедрому тарифу (200 мониторов), обычный конфиг их не достигает.
+MAX_CONFIG_BYTES = 512_000
+MAX_CONFIG_MONITORS = 1000
+
+
 class ConfigDocument(BaseModel):
     version: int = 1
-    monitors: list[ConfigMonitor] = Field(default_factory=list)
+    monitors: list[ConfigMonitor] = Field(default_factory=list, max_length=MAX_CONFIG_MONITORS)
 
 
 class ConfigUpload(BaseModel):
-    content: str
+    content: str = Field(max_length=MAX_CONFIG_BYTES)
     format: Literal["yaml", "json"] = "yaml"
 
 

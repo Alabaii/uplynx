@@ -309,6 +309,10 @@ def test_status_page_maintenance_excluded_from_overall(client, auth_headers, db_
         client.post("/api/v1/maintenance", json=window_payload(monitor_id="site"), headers=auth_headers).status_code
         == 201
     )
+    # страница кэшируется на 15 секунд — окно только что создано, сбрасываем явно
+    from app.api.v1.endpoints.status import _cache
+
+    _cache.clear()
     body = client.get("/api/v1/status/default").json()
     assert body["overall"] == "operational"
     assert body["monitors"][0]["in_maintenance"] is True

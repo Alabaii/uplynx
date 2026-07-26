@@ -101,3 +101,35 @@ def test_encrypt_decrypt_secret_round_trip():
     encrypted = encrypt_secret("123456:token")
     assert encrypted != "123456:token"
     assert decrypt_secret(encrypted) == "123456:token"
+
+
+@pytest.mark.asyncio
+async def test_read_capped_body_truncates_large_response():
+    from app.services.checks import MAX_BODY_BYTES, read_capped_body
+
+    class FakeResponse:
+        encoding = "utf-8"
+
+        async def aiter_bytes(self):
+            # «бесконечный» ответ: без потолка воркер утянул бы его целиком
+            for _ in range(100):
+                yield b"x" * 100_000
+
+    body, truncated = await read_capped_body(FakeResponse())
+    assert truncated is True
+    assert len(body) == MAX_BODY_BYTES
+
+
+@pytest.mark.asyncio
+async def test_read_capped_body_keeps_small_response_intact():
+    from app.services.checks import read_capped_body
+
+    class FakeResponse:
+        encoding = "utf-8"
+
+        async def aiter_bytes(self):
+            yield b"all good"
+
+    body, truncated = await read_capped_body(FakeResponse())
+    assert body == "all good"
+    assert truncated is False
