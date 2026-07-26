@@ -74,6 +74,27 @@ def test_validate_jwt_secret():
     validate_jwt_secret(Settings(environment="development", jwt_secret_key="change-me-in-production"))
 
 
+def test_validate_secret_encryption_key():
+    from cryptography.fernet import Fernet
+
+    from app.core.config import Settings, validate_secret_encryption_key
+
+    valid_key = Fernet.generate_key().decode()
+
+    # в production ключ обязан быть задан явно: иначе он деривируется из
+    # JWT-секрета и ротация последнего убивает расшифровку сохранённых секретов
+    with pytest.raises(RuntimeError, match="SECRET_ENCRYPTION_KEY is not set"):
+        validate_secret_encryption_key(Settings(environment="production", secret_encryption_key=None))
+    validate_secret_encryption_key(Settings(environment="production", secret_encryption_key=valid_key))
+
+    # dev/self-hosted живут на деривации — только предупреждение
+    validate_secret_encryption_key(Settings(environment="development", secret_encryption_key=None))
+
+    # мусорный ключ ловим на старте, а не на первой расшифровке
+    with pytest.raises(RuntimeError, match="not a valid Fernet key"):
+        validate_secret_encryption_key(Settings(environment="development", secret_encryption_key="too-short"))
+
+
 def test_encrypt_decrypt_secret_round_trip():
     from app.core.security import decrypt_secret, encrypt_secret
 
