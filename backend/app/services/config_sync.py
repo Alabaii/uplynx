@@ -5,7 +5,7 @@ from typing import Any
 import yaml
 from fastapi import HTTPException, status
 from pydantic import ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -17,6 +17,11 @@ from app.services.plans import (
     enforce_plan_monitor_limits,
     validate_plan_interval,
 )
+
+
+# сколько последних версий конфига держим на организацию: снимок пишется на
+# каждое изменение монитора, откатываются же на недавние
+MAX_CONFIG_VERSIONS_KEPT = 50
 
 
 def validate_target_url(url: str | None) -> None:
@@ -72,10 +77,34 @@ def next_config_version(db: Session, org_id: int) -> int:
     return current + 1
 
 
+def prune_config_versions(db: Session, org_id: int, keep: int = MAX_CONFIG_VERSIONS_KEPT) -> None:
+    """Оставляет организации только последние keep версий конфига.
+
+    Снимок конфига пишется на КАЖДОЕ изменение монитора, а не только на явную
+    загрузку: без обрезки таблица растёт вместе с обычной работой, и каждая
+    строка несёт до полумегабайта содержимого. Что менялось и кем — остаётся
+    в audit_log, здесь нужны только версии, на которые реально откатываются.
+    """
+    oldest_kept = db.scalar(
+        select(ConfigVersion.version)
+        .where(ConfigVersion.org_id == org_id)
+        .order_by(ConfigVersion.version.desc())
+        .offset(keep - 1)
+        .limit(1)
+    )
+    if oldest_kept is not None:
+        db.execute(
+            delete(ConfigVersion).where(
+                ConfigVersion.org_id == org_id, ConfigVersion.version < oldest_kept
+            )
+        )
+
+
 def create_config_version(db: Session, user: User, org: Organization, content: str, fmt: str) -> ConfigVersion:
     version = ConfigVersion(user_id=user.id, org_id=org.id, version=next_config_version(db, org.id), content=content, format=fmt)
     db.add(version)
     db.flush()
+    prune_config_versions(db, org.id)
     return version
 
 

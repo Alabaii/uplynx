@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -54,14 +54,25 @@ def download_config(ctx: OrgContext = Depends(get_current_org_member), db: Sessi
 
 
 @router.get("/versions", response_model=list[ConfigVersionRead])
-def versions(ctx: OrgContext = Depends(get_current_org_member), db: Session = Depends(get_db)) -> list[ConfigVersion]:
-    return list(
-        db.scalars(
-            select(ConfigVersion)
-            .where(ConfigVersion.org_id == ctx.org.id)
-            .order_by(ConfigVersion.version.desc())
-        ).all()
-    )
+def versions(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    ctx: OrgContext = Depends(get_current_org_member),
+    db: Session = Depends(get_db),
+) -> list[ConfigVersionRead]:
+    # выбираем поля списка, а не сущность целиком: content каждой версии — до
+    # полумегабайта, и он всё равно отбрасывается при сериализации
+    rows = db.execute(
+        select(ConfigVersion.id, ConfigVersion.version, ConfigVersion.format, ConfigVersion.created_at)
+        .where(ConfigVersion.org_id == ctx.org.id)
+        .order_by(ConfigVersion.version.desc())
+        .limit(limit)
+        .offset(offset)
+    ).all()
+    return [
+        ConfigVersionRead(id=row.id, version=row.version, format=row.format, created_at=row.created_at)
+        for row in rows
+    ]
 
 
 @router.post("/rollback", response_model=ConfigVersionRead)
