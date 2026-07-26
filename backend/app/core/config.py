@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     deployment_mode: Literal["team", "enterprise"] = "team"
     team_max_users: int = 20
     team_max_monitors: int = 100
+    # сколько ДОВЕРЕННЫХ прокси стоит перед nginx приложения (он дописывает свой
+    # адрес в X-Forwarded-For сам). 0 — nginx смотрит в интернет напрямую;
+    # 1 — перед ним TLS-терминатор (Caddy из DEPLOY.md). Значение больше реального
+    # означало бы доверие к подделанной клиентом части заголовка, поэтому
+    # безопасный дефолт — 0 (см. client_ip в endpoints/auth.py).
+    trusted_proxy_hops: int = Field(default=0, ge=0)
     login_rate_limit_attempts: int = 5
     login_rate_limit_window_seconds: int = 60
     register_rate_limit_attempts: int = 10
