@@ -59,6 +59,18 @@ export function clearSession() {
 
   // Clean up the previous mock auth value if it exists from older builds.
   localStorage.removeItem('token');
+
+  clearOfflineApiCache();
+}
+
+// офлайн-кэш API живёт в service worker: токены убрали, а ответы с данными
+// организации остались бы на устройстве до следующего входа
+function clearOfflineApiCache() {
+  if (!('serviceWorker' in navigator)) {
+    return;
+  }
+
+  navigator.serviceWorker.controller?.postMessage({ type: 'clear-api-cache' });
 }
 
 function hasFreshAccessToken() {
