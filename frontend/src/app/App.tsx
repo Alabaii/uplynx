@@ -15,12 +15,20 @@ function setupPWA() {
   }
 
   if (import.meta.env.PROD && 'serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js').catch((error) => {
-        console.error('SW registration failed:', error);
-      });
-    });
+    // load мог пройти до монтирования React — тогда обработчик уже не вызовется
+    // и воркер не зарегистрируется вовсе (ни офлайна, ни push-уведомлений)
+    if (document.readyState === 'complete') {
+      registerServiceWorker();
+    } else {
+      window.addEventListener('load', registerServiceWorker, { once: true });
+    }
   }
+}
+
+function registerServiceWorker() {
+  navigator.serviceWorker.register('/sw.js').catch((error) => {
+    console.error('SW registration failed:', error);
+  });
 }
 
 export default function App() {
