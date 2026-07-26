@@ -29,12 +29,16 @@ def parse_cert_not_after(not_after: str) -> datetime:
     return datetime.strptime(not_after, CERT_DATE_FORMAT).replace(tzinfo=timezone.utc)
 
 
-def fetch_ssl_expiry(url: str, timeout: float = 10.0) -> datetime | None:
+def fetch_ssl_expiry(url: str, timeout: float = 10.0, allow_private: bool = False) -> datetime | None:
     """Срок действия TLS-сертификата https-хоста; None — не https или получить не удалось."""
     parsed = urlparse(url)
     if parsed.scheme != "https" or not parsed.hostname:
         return None
     try:
+        # отдельное соединение мимо httpx-хука: адрес резолвится заново, поэтому
+        # проверяем его сами — иначе смена DNS между запросом и снятием сертификата
+        # уводила бы это соединение во внутреннюю сеть
+        validate_public_url(url, allow_private=allow_private)
         context = ssl.create_default_context()
         with socket.create_connection((parsed.hostname, parsed.port or 443), timeout=timeout) as sock:
             with context.wrap_socket(sock, server_hostname=parsed.hostname) as tls:
@@ -117,7 +121,9 @@ async def run_http_check(task: CheckTask) -> dict[str, Any]:
             # body_contains искали только в прочитанной части — это должно быть видно
             details["body_truncated_at_bytes"] = MAX_BODY_BYTES
         # хост отвечает — заодно снимаем срок сертификата (blocking socket → отдельный поток)
-        ssl_info = ssl_details(await asyncio.to_thread(fetch_ssl_expiry, task.url))
+        ssl_info = ssl_details(
+            await asyncio.to_thread(fetch_ssl_expiry, task.url, allow_private=allow_private)
+        )
         if ssl_info:
             details["ssl"] = ssl_info
         return {
