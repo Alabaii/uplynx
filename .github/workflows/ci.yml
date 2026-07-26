@@ -43,6 +43,21 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+  images:
+    name: Docker images build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Тесты и typecheck идут на рантайме раннера, а прод работает на образах:
+      # бамп зависимости может пройти все проверки и сломать сборку (так уже было
+      # с greenlet под новой версией Python). Проверяем то, что реально поедет.
+      - name: Build backend image
+        run: docker build -t uplynx-backend-ci ./backend
+      - name: Build frontend image
+        run: docker build -t uplynx-frontend-ci ./frontend
+      # browser-воркер намеренно не собираем: базовый образ Playwright весит
+      # больше двух гигабайт, и на каждый PR это неоправданно долго
+
   e2e:
     name: Playwright e2e
     runs-on: ubuntu-latest

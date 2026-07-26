@@ -193,7 +193,9 @@ class SchedulerHeartbeat(Base):
 class CheckResult(Base):
     __tablename__ = "check_results"
     __table_args__ = (
-        UniqueConstraint("task_id", name="uq_check_results_task_id"),
+        # на партиционированной таблице уникальность обязана включать ключ
+        # партиционирования — в БД после 0006 это пара (task_id, timestamp)
+        UniqueConstraint("task_id", "timestamp", name="uq_check_results_task_id"),
         Index("ix_check_results_monitor_timestamp", "monitor_id", "timestamp"),
     )
 

@@ -233,7 +233,8 @@ class MonitorUpdate(BaseModel):
     expected: ExpectedHttp | None = None
     steps: list[BrowserStep] | None = None
     enabled: bool | None = None
-    status: MonitorStatus | None = None
+    # статус считает пайплайн проверок: разрешать его выставлять извне значит
+    # позволить нарисовать «up» на публичной статус-странице лежащего сервиса
     confirmations: int | None = Field(default=None, ge=1, le=10)
     renotify_interval_minutes: int | None = Field(default=None, ge=1, le=1440)
 

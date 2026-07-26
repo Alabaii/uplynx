@@ -82,7 +82,10 @@ class FakePage:
 
 
 @pytest.mark.asyncio
-async def test_execute_steps_happy_path_all_actions():
+async def test_execute_steps_happy_path_all_actions(monkeypatch):
+    # шаг goto резолвит хост через DNS (SSRF-проверка) — тест про диспетчеризацию
+    # шагов не должен зависеть от сети: без этого он падает офлайн и в CI без DNS
+    monkeypatch.setattr("app.services.checks.validate_public_url", lambda *a, **kw: None)
     page = FakePage(content_text="Welcome back", inner_texts={"h1": "Dashboard"}, url="https://example.com/dashboard")
     steps = [
         {"action": "goto", "url": "https://example.com/login"},
@@ -170,6 +173,9 @@ def patch_playwright(monkeypatch, browser):
             return False
 
     monkeypatch.setattr("playwright.async_api.async_playwright", lambda: FakeContext())
+    # шаг goto резолвит хост через DNS (SSRF-проверка): тесты раннера про
+    # диспетчеризацию шагов, а не про сеть — иначе они падают офлайн
+    monkeypatch.setattr("app.services.checks.validate_public_url", lambda *a, **kw: None)
 
 
 def make_browser_task(steps):
