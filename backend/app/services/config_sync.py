@@ -269,7 +269,7 @@ def update_monitor_from_payload(db: Session, user: User, org: Organization, moni
             enabled_browser=enabled_browser + (1 if monitor.type == "browser" else 0),
         )
     config = dict(monitor.config_json or {})
-    for field in ["name", "url", "interval", "enabled", "status"]:
+    for field in ["name", "url", "interval", "enabled"]:
         if field in data:
             setattr(monitor, field, data[field])
     if "expected" in data:
