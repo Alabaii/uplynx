@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 from datetime import datetime, timedelta, timezone
@@ -63,7 +64,9 @@ async def mutation_rate_limit(request: Request, call_next):  # type: ignore[no-u
         token = auth_header.removeprefix("Bearer ").strip()
         subject = decode_access_token(token) if token else None
         key = f"user:{subject}" if subject else f"ip:{client_ip(request)}"
-        retry_after = get_mutation_limiter().hit(key)
+        # лимитер ходит в БД синхронно, а middleware асинхронный: без отдельного
+        # потока каждая мутация останавливала бы event loop всего процесса
+        retry_after = await asyncio.to_thread(get_mutation_limiter().hit, key)
         if retry_after is not None:
             return JSONResponse(
                 status_code=429,

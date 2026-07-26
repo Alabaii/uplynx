@@ -1,10 +1,32 @@
+import asyncio
+
 from app.core.config import get_settings
-from app.core.ratelimit import get_mutation_limiter
+from app.core.ratelimit import DatabaseRateLimiter, get_mutation_limiter
 
 
 def tighten_limit(monkeypatch, attempts: int) -> None:
     monkeypatch.setattr(get_settings(), "mutation_rate_limit_attempts", attempts)
     get_mutation_limiter.cache_clear()
+
+
+def test_limiter_does_not_run_inside_the_event_loop(client, auth_headers, monkeypatch):
+    """Лимитер делает три запроса к БД; в async-middleware это остановило бы весь процесс."""
+    original = DatabaseRateLimiter.hit
+    ran_in_loop = []
+
+    def spy(self, key):
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            ran_in_loop.append(False)
+        else:
+            ran_in_loop.append(True)
+        return original(self, key)
+
+    monkeypatch.setattr(DatabaseRateLimiter, "hit", spy)
+    client.post("/api/v1/monitors", headers=auth_headers, json={})
+
+    assert ran_in_loop == [False]
 
 
 def test_mutations_rate_limited_per_user(client, auth_headers, monkeypatch):
