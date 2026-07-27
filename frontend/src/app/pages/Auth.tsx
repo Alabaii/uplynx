@@ -4,7 +4,7 @@ import { Activity, ShieldCheck, Users, Workflow } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
-import { createSession } from '../auth';
+import { startSession } from '../auth';
 import { ApiError, login, register, resendVerification } from '../api';
 import { LanguageSwitcher, useTexts } from '../i18n';
 
@@ -154,7 +154,7 @@ export default function AuthPage() {
       }
 
       const token = await login(email, password);
-      createSession(token.access_token, email, token.refresh_token);
+      startSession(token.access_token, email, token.refresh_token);
       navigate('/');
     } catch (error) {
       // 403 на этой странице = требуется подтверждение email (после register или login)
