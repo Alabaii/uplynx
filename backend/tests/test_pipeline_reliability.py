@@ -159,3 +159,74 @@ def test_scheduler_health_reports_overdue_monitors(client, db_session_factory):
     response = client.get("/health/scheduler")
     assert response.status_code == 200  # heartbeat свежий → сам шедулер жив
     assert response.json()["overdue_monitors"] == 1
+
+
+# --- бюджет HTTP-проверки -----------------------------------------------------------------------
+
+
+def test_http_check_budget_stops_a_hanging_target(monkeypatch):
+    """Медленная цель отдаёт down по бюджету, а не занимает слот воркера бесконечно.
+
+    Таймаут httpx применяется к отдельной операции: цель, отдающая по байту чаще
+    таймаута, растягивает проверку сколько угодно, и каждый хоп редиректа
+    получает свой таймаут заново. Проверяем именно общий потолок.
+    """
+    import asyncio
+
+    from app.schemas import CheckTask
+    from app.services import checks
+
+    monkeypatch.setattr(checks, "get_settings", lambda: _settings_with_http_budget())
+
+    async def never_finishes(_task):
+        await asyncio.sleep(60)
+
+    monkeypatch.setattr(checks, "_perform_http_check", never_finishes)
+
+    task = CheckTask(
+        task_id="slow",
+        monitor_id=1,
+        type="http",
+        url="https://example.com",
+        config={},
+        timeout_seconds=30,
+        created_at=datetime.now(timezone.utc),
+        attempt=1,
+    )
+    result = asyncio.run(checks.run_http_check(task))
+    assert result["status"] == "down"
+    assert "budget" in result["error"]
+    assert result["details"]["check_budget_seconds"] == 1
+
+
+def test_http_check_budget_does_not_touch_fast_checks(monkeypatch):
+    """Обычная быстрая проверка проходит бюджет насквозь и отдаёт свой результат."""
+    import asyncio
+
+    from app.schemas import CheckTask
+    from app.services import checks
+
+    monkeypatch.setattr(checks, "get_settings", lambda: _settings_with_http_budget())
+
+    async def instant(_task):
+        return {"status": "up", "response_time_ms": 12, "error": None, "details": {"status_code": 200}}
+
+    monkeypatch.setattr(checks, "_perform_http_check", instant)
+
+    task = CheckTask(
+        task_id="fast",
+        monitor_id=1,
+        type="http",
+        url="https://example.com",
+        config={},
+        timeout_seconds=30,
+        created_at=datetime.now(timezone.utc),
+        attempt=1,
+    )
+    assert asyncio.run(checks.run_http_check(task))["status"] == "up"
+
+
+def _settings_with_http_budget(budget: int = 1):
+    settings = get_settings().model_copy()
+    object.__setattr__(settings, "http_check_budget_seconds", budget)
+    return settings

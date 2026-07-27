@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     # отдельный шаг, поэтому длинный сценарий (или шаги, каждый из которых почти
     # укладывается в свой таймаут) держал бы воркер сколько угодно долго
     browser_scenario_timeout_seconds: int = Field(default=120, ge=10)
+    # то же для HTTP-проверки. check_timeout_seconds уходит в httpx, а там таймаут
+    # применяется к КАЖДОЙ операции (connect/read/write) по отдельности, а не к
+    # запросу целиком: цель, отдающая по байту раз в 29 секунд, держит соединение
+    # сколько угодно долго, и каждый хоп цепочки редиректов получает свой полный
+    # таймаут заново. Без общего потолка десяток таких мониторов занимает все
+    # http_concurrency слотов и останавливает HTTP-проверки всей платформы
+    http_check_budget_seconds: int = Field(default=90, ge=10)
     # Sentry: пустой DSN — отключён (dev/self-hosted работают без него)
     sentry_dsn: str | None = None
     sentry_traces_sample_rate: float = 0.0
