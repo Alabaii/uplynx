@@ -46,8 +46,17 @@ def _reject_private_ip(ip_str: str) -> None:
         raise BlockedTargetError(f"target resolves to non-public address {ip_str}")
 
 
-def validate_public_url(url: str, *, allow_private: bool = False, resolve: bool = True) -> None:
-    """Бросает BlockedTargetError, если URL нельзя мониторить. Иначе возвращает None."""
+def resolve_public_address(url: str, *, allow_private: bool = False, resolve: bool = True) -> str | None:
+    """Проверяет URL и возвращает адрес, к которому РАЗРЕШЕНО подключаться.
+
+    None — привязывать соединение к адресу не нужно (проверка снята
+    allow_private) или невозможно (resolve=False, режим API без обращения к сети).
+
+    Возврат адреса позволяет вызывающему подключиться именно к проверенному IP.
+    Иначе между проверкой и соединением остаётся окно: хост под контролем
+    арендатора отдаёт публичный адрес на проверку и приватный — на подключение
+    (DNS rebinding), и клиент, резолвящий имя заново, уходит во внутреннюю сеть.
+    """
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         raise BlockedTargetError(
@@ -57,7 +66,7 @@ def validate_public_url(url: str, *, allow_private: bool = False, resolve: bool 
     if not host:
         raise BlockedTargetError("URL is missing a host")
     if allow_private:
-        return
+        return None
 
     lowered = host.lower()
     if lowered in _BLOCKED_HOSTNAMES or lowered.endswith(".localhost"):
@@ -70,14 +79,22 @@ def validate_public_url(url: str, *, allow_private: bool = False, resolve: bool 
         pass
     else:
         _reject_private_ip(host)
-        return
+        return host
 
     if not resolve:
-        return
+        return None
 
     try:
         infos = socket.getaddrinfo(host, parsed.port, proto=socket.IPPROTO_TCP)
     except socket.gaierror as exc:
         raise BlockedTargetError(f"cannot resolve host '{host}'") from exc
     for info in infos:
+        # проверяем КАЖДЫЙ адрес: имя, часть адресов которого приватная, блокируем
+        # целиком — иначе выбор адреса решал бы, сработает защита или нет
         _reject_private_ip(info[4][0])
+    return infos[0][4][0]
+
+
+def validate_public_url(url: str, *, allow_private: bool = False, resolve: bool = True) -> None:
+    """Бросает BlockedTargetError, если URL нельзя мониторить. Иначе возвращает None."""
+    resolve_public_address(url, allow_private=allow_private, resolve=resolve)
