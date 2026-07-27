@@ -2,7 +2,7 @@ from typing import Callable, NamedTuple
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy import select, text
+from sqlalchemy import event, select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -74,12 +74,36 @@ def get_current_org_member(
     if not row:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No organization membership")
     org, role = row
-    if db.get_bind().dialect.name == "postgresql":
-        # RLS-политики (миграция 0008) видят организацию через app.org_id.
-        # third=true — SET LOCAL: действует до конца текущей транзакции и сбрасывается
-        # на commit/rollback, поэтому не утекает в другие запросы через пул соединений.
-        db.execute(text("SELECT set_config('app.org_id', :v, true)"), {"v": str(org.id)})
+    bind_org_to_rls(db, org.id)
     return OrgContext(user=user, org=org, role=role)
+
+
+def bind_org_to_rls(db: Session, org_id: int) -> None:
+    """Привязывает сессию к организации для RLS-политик (миграция 0008).
+
+    third=true — SET LOCAL: настройка действует до конца транзакции и не утекает
+    в чужие запросы через пул соединений. Но и сбрасывается она вместе с
+    транзакцией: эндпоинт, который коммитит в середине работы (создание монитора
+    сохраняет снимок конфига и коммитит, а потом читает монитор заново), остаток
+    запроса выполнял уже без контекста — а политики при незаданном app.org_id
+    пропускают всё. Поэтому настройка ставится не один раз, а на начало КАЖДОЙ
+    транзакции этой сессии.
+
+    На sqlite (юнит-тесты, self-hosted без PostgreSQL) — no-op: там нет ни
+    set_config, ни самих политик.
+    """
+    if db.get_bind().dialect.name != "postgresql":
+        return
+    statement = text("SELECT set_config('app.org_id', :v, true)")
+    params = {"v": str(org_id)}
+
+    @event.listens_for(db, "after_begin")
+    def _apply_on_every_transaction(_session, _transaction, connection) -> None:  # type: ignore[no-untyped-def]
+        connection.execute(statement, params)
+
+    # текущая транзакция уже открыта (аутентификация читала пользователя) —
+    # её событие after_begin уже прошло, выставляем настройку напрямую
+    db.execute(statement, params)
 
 
 def require_role(minimum: str) -> Callable[..., OrgContext]:

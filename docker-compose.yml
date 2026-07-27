@@ -25,12 +25,22 @@ services:
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
+    # имя узла входит в путь mnesia (rabbit@<hostname>): без фиксации пересозданный
+    # контейнер получает новое случайное имя и не видит собственные данные в томе
+    hostname: rabbitmq
     environment:
       # guest/guest в проде — учётка по умолчанию, известная всем; она же открывает
       # management UI. Пароль подставляется в RABBITMQ_URL, поэтому берите его
       # без символов, требующих URL-экранирования (@ : / ?)
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    volumes:
+      # без тома пересоздание контейнера (обычное `up --build`) стирает mnesia:
+      # уходят durable-очереди с неразобранными задачами, содержимое DLQ и политики
+      - rabbitmq-data:/var/lib/rabbitmq
+      # политика хранения для *.dlq — применяется вручную после первого запуска:
+      # docker compose exec rabbitmq sh /rabbitmq-policies.sh
+      - ./deploy/rabbitmq-policies.sh:/rabbitmq-policies.sh:ro
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -60,6 +70,10 @@ services:
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
       # team (лимиты пользователей/мониторов) | enterprise (без лимитов)
       DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-team}
+      # сколько организаций клиент может создать сам (enterprise): лимиты тарифа
+      # считаются на организацию, поэтому без потолка платный план обходится
+      # созданием новых бесплатных воркспейсов
+      MAX_OWNED_ORGS_PER_USER: ${MAX_OWNED_ORGS_PER_USER:-3}
       # SSRF-защита: false — мониторы не могут вести во внутреннюю сеть (SaaS);
       # true — разрешить приватные адреса (on-prem мониторинг внутренних сервисов)
       ALLOW_PRIVATE_TARGETS: ${ALLOW_PRIVATE_TARGETS:-false}
@@ -129,6 +143,11 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-change-me}
       # SSRF-защита: true разрешает мониторить приватные адреса (on-prem)
       ALLOW_PRIVATE_TARGETS: ${ALLOW_PRIVATE_TARGETS:-false}
+      # сколько HTTP-проверок воркер ведёт одновременно: при 1 недоступный адрес
+      # занимал бы его на весь CHECK_TIMEOUT_SECONDS, останавливая проверки всех
+      # мониторов. Проверка ждёт сеть, а не процессор — потолок высокий
+      HTTP_CONCURRENCY: ${HTTP_CONCURRENCY:-10}
+      CHECK_TIMEOUT_SECONDS: ${CHECK_TIMEOUT_SECONDS:-30}
       SENTRY_DSN: ${SENTRY_DSN:-}
       METRICS_PORT: "9102"
       # нужен воркерам для расшифровки bot token при отправке алертов
@@ -171,7 +190,9 @@ services:
       METRICS_PORT: "9103"
       # нужен воркерам для расшифровки bot token при отправке алертов
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
+      # браузерных проверок одновременно — каждая держит свой Chromium (память!)
       BROWSER_CONCURRENCY: ${BROWSER_CONCURRENCY:-2}
+      CHECK_TIMEOUT_SECONDS: ${CHECK_TIMEOUT_SECONDS:-30}
       # VAPID-ключи для web push (сгенерировать: python -m app.tools.vapid); пусто — push отключён
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
@@ -234,3 +255,4 @@ services:
 
 volumes:
   postgres-data:
+  rabbitmq-data:

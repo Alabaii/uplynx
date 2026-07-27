@@ -4,6 +4,10 @@ from typing import Any, Literal
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 MonitorType = Literal["http", "browser"]
+# длины колонок monitors.url / monitors.name: без этих потолков значение длиннее
+# колонки доходило до БД и падало 500-й ошибкой вместо понятного 422
+MAX_MONITOR_URL_LENGTH = 2048
+MAX_MONITOR_NAME_LENGTH = 200
 MonitorStatus = Literal["up", "down", "paused", "degraded", "pending"]
 IncidentStatus = Literal["open", "resolved"]
 IncidentSeverity = Literal["down", "degraded"]
@@ -132,13 +136,20 @@ class AuditLogRead(BaseModel):
     actor_email: str | None = None
 
 
+# Потолок на сценарий: таймаут Playwright действует НА ШАГ, поэтому без предела
+# длины сценарий из сотен шагов занимал бы браузерный воркер часами — в SaaS этого
+# достаточно, чтобы одна организация остановила браузерные проверки остальных.
+# Живой сценарий (логин, корзина, оформление) укладывается в единицы шагов.
+MAX_SCENARIO_STEPS = 50
+
+
 class BrowserStep(BaseModel):
     action: BrowserAction
-    url: str | None = None
-    selector: str | None = None
-    text: str | None = None
-    value: str | None = None
-    contains: str | None = None
+    url: str | None = Field(default=None, max_length=2048)
+    selector: str | None = Field(default=None, max_length=500)
+    text: str | None = Field(default=None, max_length=1000)
+    value: str | None = Field(default=None, max_length=1000)
+    contains: str | None = Field(default=None, max_length=1000)
 
 
 class ExpectedHttp(BaseModel):
@@ -149,12 +160,12 @@ class ExpectedHttp(BaseModel):
 
 class ConfigMonitor(BaseModel):
     id: str = Field(min_length=1, max_length=160, pattern=r"^[a-zA-Z0-9_.:-]+$")
-    name: str | None = Field(default=None, max_length=200)
+    name: str | None = Field(default=None, max_length=MAX_MONITOR_NAME_LENGTH)
     type: MonitorType
-    url: str | None = None
+    url: str | None = Field(default=None, max_length=MAX_MONITOR_URL_LENGTH)
     interval: int = Field(ge=10, le=86400)
     expected: ExpectedHttp | None = None
-    steps: list[BrowserStep] | None = None
+    steps: list[BrowserStep] | None = Field(default=None, max_length=MAX_SCENARIO_STEPS)
     enabled: bool = True
     # анти-флаппинг: статус меняется после N одинаковых результатов подряд
     confirmations: int = Field(default=1, ge=1, le=10)
@@ -215,23 +226,23 @@ class ConfigRollback(BaseModel):
 
 class MonitorCreate(BaseModel):
     id: str = Field(min_length=1, max_length=160, pattern=r"^[a-zA-Z0-9_.:-]+$")
-    name: str | None = None
+    name: str | None = Field(default=None, max_length=MAX_MONITOR_NAME_LENGTH)
     type: MonitorType
-    url: str | None = None
+    url: str | None = Field(default=None, max_length=MAX_MONITOR_URL_LENGTH)
     interval: int = Field(ge=10, le=86400)
     expected: ExpectedHttp | None = None
-    steps: list[BrowserStep] | None = None
+    steps: list[BrowserStep] | None = Field(default=None, max_length=MAX_SCENARIO_STEPS)
     enabled: bool = True
     confirmations: int = Field(default=1, ge=1, le=10)
     renotify_interval_minutes: int | None = Field(default=None, ge=1, le=1440)
 
 
 class MonitorUpdate(BaseModel):
-    name: str | None = None
-    url: str | None = None
+    name: str | None = Field(default=None, max_length=MAX_MONITOR_NAME_LENGTH)
+    url: str | None = Field(default=None, max_length=MAX_MONITOR_URL_LENGTH)
     interval: int | None = Field(default=None, ge=10, le=86400)
     expected: ExpectedHttp | None = None
-    steps: list[BrowserStep] | None = None
+    steps: list[BrowserStep] | None = Field(default=None, max_length=MAX_SCENARIO_STEPS)
     enabled: bool | None = None
     # статус считает пайплайн проверок: разрешать его выставлять извне значит
     # позволить нарисовать «up» на публичной статус-странице лежащего сервиса

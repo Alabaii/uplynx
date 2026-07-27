@@ -15,6 +15,7 @@ from app.api.v1.router import api_router
 from app.core.config import (
     get_settings,
     validate_cors_origins,
+    validate_infrastructure_credentials,
     validate_jwt_secret,
     validate_secret_encryption_key,
 )
@@ -28,6 +29,7 @@ settings = get_settings()
 validate_jwt_secret(settings)
 validate_secret_encryption_key(settings)
 validate_cors_origins(settings)
+validate_infrastructure_credentials(settings)
 init_sentry("api")
 
 app = FastAPI(title=settings.app_name)

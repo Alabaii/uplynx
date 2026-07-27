@@ -5,6 +5,7 @@ import pytest
 from prometheus_client import REGISTRY
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base
 from app.core.observability import init_sentry, start_metrics_server
@@ -53,7 +54,9 @@ def test_api_metrics_do_not_count_metrics_endpoint(client):
 
 @pytest.fixture()
 def worker_session_factory(monkeypatch):
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
     Base.metadata.create_all(bind=engine)
     monkeypatch.setattr("app.workers.base.SessionLocal", TestingSessionLocal)

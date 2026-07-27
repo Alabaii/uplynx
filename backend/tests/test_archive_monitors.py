@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from sqlalchemy import select
 
 from app.models import CheckResult, Monitor
@@ -104,3 +106,49 @@ def test_same_slug_allowed_in_two_organizations(client, monkeypatch, db_session_
 def test_duplicate_slug_in_same_org_still_conflicts(client, auth_headers):
     assert client.post("/api/v1/monitors", json=MONITOR, headers=auth_headers).status_code == 201
     assert client.post("/api/v1/monitors", json=MONITOR, headers=auth_headers).status_code == 409
+
+
+def test_incidents_of_reused_slug_belong_to_the_live_monitor(client, auth_headers, db_session_factory):
+    """Слаг архивного монитора освобождается: инциденты должны считаться от нового."""
+    from app.models import Incident, Monitor
+
+    client.post(
+        "/api/v1/monitors",
+        headers=auth_headers,
+        json={"id": "shop", "name": "Shop", "type": "http", "url": "https://example.com", "interval": 300},
+    )
+    with db_session_factory() as db:
+        old = db.scalar(select(Monitor).where(Monitor.slug == "shop"))
+        db.add(
+            Incident(
+                org_id=old.org_id,
+                monitor_id=old.id,
+                status="resolved",
+                severity="down",
+                started_at=datetime.now(timezone.utc) - timedelta(days=1),
+                trigger_error="incident of the archived monitor",
+            )
+        )
+        db.commit()
+
+    client.delete("/api/v1/monitors/shop", headers=auth_headers)
+    # тот же слаг занимает новый монитор — своей истории инцидентов у него ещё нет
+    client.post(
+        "/api/v1/monitors",
+        headers=auth_headers,
+        json={"id": "shop", "name": "Shop v2", "type": "http", "url": "https://example.org", "interval": 300},
+    )
+
+    response = client.get("/api/v1/monitors/shop/incidents", headers=auth_headers)
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_incidents_of_archived_monitor_are_not_reachable(client, auth_headers):
+    client.post(
+        "/api/v1/monitors",
+        headers=auth_headers,
+        json={"id": "gone", "name": "Gone", "type": "http", "url": "https://example.com", "interval": 300},
+    )
+    client.delete("/api/v1/monitors/gone", headers=auth_headers)
+    assert client.get("/api/v1/monitors/gone/incidents", headers=auth_headers).status_code == 404

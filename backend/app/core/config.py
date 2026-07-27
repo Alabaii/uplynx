@@ -7,6 +7,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 DEFAULT_JWT_SECRETS = {"change-me-in-production", "change-me-change-me"}
+# учётные данные из docker-compose.yml: они удобны для dev и известны всем, кто
+# видел репозиторий. RLS и роль monitor_app защищают именно от того, кто добрался
+# до сети контейнеров, — с дефолтным паролем эта защита обнуляется
+DEFAULT_DATABASE_PASSWORDS = {"monitor", "monitor_app", "postgres"}
+DEFAULT_BROKER_PASSWORDS = {"guest"}
 
 
 class Settings(BaseSettings):
@@ -25,13 +30,23 @@ class Settings(BaseSettings):
     # heartbeat шедулера старше этого — /health/scheduler отдаёт 503 (liveness)
     scheduler_heartbeat_stale_seconds: int = 30
     check_timeout_seconds: int = 30
+    # предел на browser-сценарий ЦЕЛИКОМ: check_timeout_seconds ограничивает
+    # отдельный шаг, поэтому длинный сценарий (или шаги, каждый из которых почти
+    # укладывается в свой таймаут) держал бы воркер сколько угодно долго
+    browser_scenario_timeout_seconds: int = Field(default=120, ge=10)
     # Sentry: пустой DSN — отключён (dev/self-hosted работают без него)
     sentry_dsn: str | None = None
     sentry_traces_sample_rate: float = 0.0
     # порт /metrics для scheduler/воркеров; 0 — не поднимать (API отдаёт /metrics роутом)
     metrics_port: int = 0
     retention_days: int = 365
-    browser_concurrency: int = 2
+    # сколько проверок воркер выполняет одновременно (prefetch очереди). Проверка
+    # почти всё время ждёт сеть, поэтому потолок здесь — не CPU, а число мониторов,
+    # которые не должны ждать друг друга: при 1 недоступный адрес занимал воркер
+    # на весь check_timeout_seconds и останавливал проверки всех организаций
+    http_concurrency: int = Field(default=10, ge=1)
+    # браузерных проверок одновременно — каждая держит свой Chromium (память!)
+    browser_concurrency: int = Field(default=2, ge=1)
     # SSRF-защита: по умолчанию мониторы не могут вести во внутреннюю сеть.
     # on-prem-инсталляции ставят true, чтобы мониторить внутренние сервисы.
     allow_private_targets: bool = False
@@ -45,6 +60,10 @@ class Settings(BaseSettings):
     deployment_mode: Literal["team", "enterprise"] = "team"
     team_max_users: int = 20
     team_max_monitors: int = 100
+    # сколько организаций пользователь может создать сам (enterprise). Регистрация
+    # уже даёт ему персональный воркспейс, а лимиты тарифа считаются НА организацию:
+    # без потолка любой клиент обходил бы платный план, множа бесплатные воркспейсы
+    max_owned_orgs_per_user: int = Field(default=3, ge=1)
     # сколько ДОВЕРЕННЫХ прокси стоит перед nginx приложения (он дописывает свой
     # адрес в X-Forwarded-For сам). 0 — nginx смотрит в интернет напрямую;
     # 1 — перед ним TLS-терминатор (Caddy из DEPLOY.md). Значение больше реального
@@ -146,6 +165,37 @@ def validate_cors_origins(settings: Settings) -> None:
         # частая ошибка: домен без схемы — браузер такой origin не сопоставит,
         # и запросы фронтенда молча начнут блокироваться
         raise RuntimeError(f"CORS_ORIGINS entries must include a scheme: {', '.join(malformed)}")
+
+
+def validate_infrastructure_credentials(settings: Settings) -> None:
+    """В production запрещаем дефолтные пароли БД и брокера.
+
+    JWT-секрет и ключ шифрования уже проверяются при старте, а пароли postgres
+    и rabbitmq из docker-compose (monitor / monitor_app / guest) — нет: забытый
+    .env оставлял бы инфраструктуру на паролях, известных каждому, кто видел
+    репозиторий. Порты в прод-оверлее закрыты, но именно от доступа в сеть
+    контейнеров и защищают RLS с непривилегированной ролью.
+    """
+    from urllib.parse import urlsplit
+
+    logger = logging.getLogger(__name__)
+    problems: list[str] = []
+    for name, url, defaults in (
+        ("DATABASE_URL", settings.database_url, DEFAULT_DATABASE_PASSWORDS),
+        ("RABBITMQ_URL", settings.rabbitmq_url, DEFAULT_BROKER_PASSWORDS),
+    ):
+        try:
+            password = urlsplit(url).password
+        except ValueError:  # некорректный URL — не наша забота, упадёт при подключении
+            continue
+        if password and password in defaults:
+            problems.append(f"{name} uses the well-known default password '{password}'")
+    if not problems:
+        return
+    message = "; ".join(problems) + "; set your own credentials in .env"
+    if settings.environment == "production":
+        raise RuntimeError(message)
+    logger.warning(message)
 
 
 @lru_cache

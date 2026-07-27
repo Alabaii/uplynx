@@ -35,6 +35,14 @@ export function createSession(token: string, email?: string, refreshToken?: stri
   }
 }
 
+export function startSession(token: string, email?: string, refreshToken?: string | null) {
+  // вход и смена организации — момент, когда офлайн-кэш API относится уже к другому
+  // владельцу данных: логаут его чистит, но пользователь может просто закрыть вкладку,
+  // а следующий вход в офлайне показал бы мониторы предыдущего воркспейса
+  clearOfflineApiCache();
+  createSession(token, email, refreshToken);
+}
+
 export function getAuthToken() {
   if (!hasFreshAccessToken()) {
     return null;

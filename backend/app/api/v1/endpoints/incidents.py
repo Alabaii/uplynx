@@ -62,7 +62,15 @@ def monitor_incidents(
     ctx: OrgContext = Depends(get_current_org_member),
     db: Session = Depends(get_db),
 ) -> list[IncidentRead]:
-    monitor = db.scalar(select(Monitor).where(Monitor.org_id == ctx.org.id, Monitor.slug == monitor_id))
+    # архивный монитор для API не существует, и его слаг может быть занят заново:
+    # без этого фильтра запрос отдавал бы инциденты удалённого одноимённого монитора
+    monitor = db.scalar(
+        select(Monitor).where(
+            Monitor.org_id == ctx.org.id,
+            Monitor.slug == monitor_id,
+            Monitor.archived_at.is_(None),
+        )
+    )
     if not monitor:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Monitor not found")
     incidents = db.scalars(

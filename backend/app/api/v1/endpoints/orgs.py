@@ -1,7 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import OrgContext, get_current_org_member, get_current_user, require_role
@@ -60,10 +60,23 @@ def create_org(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> OrgRead:
-    if get_settings().deployment_mode == "team":
+    settings = get_settings()
+    if settings.deployment_mode == "team":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Creating organizations requires the enterprise deployment mode",
+        )
+    # лимиты тарифа действуют на организацию, поэтому без потолка на их число
+    # клиент бесплатного плана получал бы сколько угодно бесплатных воркспейсов
+    owned = db.scalar(
+        select(func.count())
+        .select_from(OrgMember)
+        .where(OrgMember.user_id == user.id, OrgMember.role == "owner")
+    ) or 0
+    if owned >= settings.max_owned_orgs_per_user:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"You already own {owned} organizations (limit {settings.max_owned_orgs_per_user})",
         )
     if db.scalar(select(Organization).where(Organization.slug == payload.slug)):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Organization slug already exists")
