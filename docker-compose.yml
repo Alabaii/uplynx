@@ -25,6 +25,9 @@ services:
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
+    # имя узла входит в путь mnesia (rabbit@<hostname>): без фиксации пересозданный
+    # контейнер получает новое случайное имя и не видит собственные данные в томе
+    hostname: rabbitmq
     environment:
       # guest/guest в проде — учётка по умолчанию, известная всем; она же открывает
       # management UI. Пароль подставляется в RABBITMQ_URL, поэтому берите его
@@ -32,6 +35,9 @@ services:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
     volumes:
+      # без тома пересоздание контейнера (обычное `up --build`) стирает mnesia:
+      # уходят durable-очереди с неразобранными задачами, содержимое DLQ и политики
+      - rabbitmq-data:/var/lib/rabbitmq
       # политика хранения для *.dlq — применяется вручную после первого запуска:
       # docker compose exec rabbitmq sh /rabbitmq-policies.sh
       - ./deploy/rabbitmq-policies.sh:/rabbitmq-policies.sh:ro
@@ -238,3 +244,4 @@ services:
 
 volumes:
   postgres-data:
+  rabbitmq-data:
