@@ -3,7 +3,7 @@ import logging
 
 from sqlalchemy import select
 
-from app.core.config import get_settings
+from app.core.config import get_settings, validate_infrastructure_credentials
 from app.core.database import SessionLocal
 from app.core.observability import init_sentry, start_metrics_server
 from app.models import Monitor
@@ -38,6 +38,7 @@ async def browser_check_with_secrets(task: CheckTask) -> dict:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    validate_infrastructure_credentials(get_settings())
     init_sentry("worker-browser")
     start_metrics_server()
     # число одновременных проверок ограничивает prefetch очереди: семафор внутри
