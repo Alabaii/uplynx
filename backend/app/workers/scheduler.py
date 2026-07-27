@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.config import get_settings, validate_infrastructure_credentials
 from app.core.database import SessionLocal
 from app.core.ratelimit import purge_stale_rate_limits
 from app.core.observability import (
@@ -213,6 +213,9 @@ def run_forever() -> None:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    # у шедулера свой DATABASE_URL — суперпользователь БД, владелец миграций;
+    # его пароль API не видит, поэтому проверяем в каждом процессе отдельно
+    validate_infrastructure_credentials(get_settings())
     init_sentry("scheduler")
     start_metrics_server()
     run_forever()

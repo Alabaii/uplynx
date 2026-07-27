@@ -7,6 +7,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 DEFAULT_JWT_SECRETS = {"change-me-in-production", "change-me-change-me"}
+# учётные данные из docker-compose.yml: они удобны для dev и известны всем, кто
+# видел репозиторий. RLS и роль monitor_app защищают именно от того, кто добрался
+# до сети контейнеров, — с дефолтным паролем эта защита обнуляется
+DEFAULT_DATABASE_PASSWORDS = {"monitor", "monitor_app", "postgres"}
+DEFAULT_BROKER_PASSWORDS = {"guest"}
 
 
 class Settings(BaseSettings):
@@ -146,6 +151,37 @@ def validate_cors_origins(settings: Settings) -> None:
         # частая ошибка: домен без схемы — браузер такой origin не сопоставит,
         # и запросы фронтенда молча начнут блокироваться
         raise RuntimeError(f"CORS_ORIGINS entries must include a scheme: {', '.join(malformed)}")
+
+
+def validate_infrastructure_credentials(settings: Settings) -> None:
+    """В production запрещаем дефолтные пароли БД и брокера.
+
+    JWT-секрет и ключ шифрования уже проверяются при старте, а пароли postgres
+    и rabbitmq из docker-compose (monitor / monitor_app / guest) — нет: забытый
+    .env оставлял бы инфраструктуру на паролях, известных каждому, кто видел
+    репозиторий. Порты в прод-оверлее закрыты, но именно от доступа в сеть
+    контейнеров и защищают RLS с непривилегированной ролью.
+    """
+    from urllib.parse import urlsplit
+
+    logger = logging.getLogger(__name__)
+    problems: list[str] = []
+    for name, url, defaults in (
+        ("DATABASE_URL", settings.database_url, DEFAULT_DATABASE_PASSWORDS),
+        ("RABBITMQ_URL", settings.rabbitmq_url, DEFAULT_BROKER_PASSWORDS),
+    ):
+        try:
+            password = urlsplit(url).password
+        except ValueError:  # некорректный URL — не наша забота, упадёт при подключении
+            continue
+        if password and password in defaults:
+            problems.append(f"{name} uses the well-known default password '{password}'")
+    if not problems:
+        return
+    message = "; ".join(problems) + "; set your own credentials in .env"
+    if settings.environment == "production":
+        raise RuntimeError(message)
+    logger.warning(message)
 
 
 @lru_cache
