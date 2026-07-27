@@ -4,6 +4,10 @@ from typing import Any, Literal
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 MonitorType = Literal["http", "browser"]
+# длины колонок monitors.url / monitors.name: без этих потолков значение длиннее
+# колонки доходило до БД и падало 500-й ошибкой вместо понятного 422
+MAX_MONITOR_URL_LENGTH = 2048
+MAX_MONITOR_NAME_LENGTH = 200
 MonitorStatus = Literal["up", "down", "paused", "degraded", "pending"]
 IncidentStatus = Literal["open", "resolved"]
 IncidentSeverity = Literal["down", "degraded"]
@@ -149,9 +153,9 @@ class ExpectedHttp(BaseModel):
 
 class ConfigMonitor(BaseModel):
     id: str = Field(min_length=1, max_length=160, pattern=r"^[a-zA-Z0-9_.:-]+$")
-    name: str | None = Field(default=None, max_length=200)
+    name: str | None = Field(default=None, max_length=MAX_MONITOR_NAME_LENGTH)
     type: MonitorType
-    url: str | None = None
+    url: str | None = Field(default=None, max_length=MAX_MONITOR_URL_LENGTH)
     interval: int = Field(ge=10, le=86400)
     expected: ExpectedHttp | None = None
     steps: list[BrowserStep] | None = None
@@ -215,9 +219,9 @@ class ConfigRollback(BaseModel):
 
 class MonitorCreate(BaseModel):
     id: str = Field(min_length=1, max_length=160, pattern=r"^[a-zA-Z0-9_.:-]+$")
-    name: str | None = None
+    name: str | None = Field(default=None, max_length=MAX_MONITOR_NAME_LENGTH)
     type: MonitorType
-    url: str | None = None
+    url: str | None = Field(default=None, max_length=MAX_MONITOR_URL_LENGTH)
     interval: int = Field(ge=10, le=86400)
     expected: ExpectedHttp | None = None
     steps: list[BrowserStep] | None = None
@@ -227,8 +231,8 @@ class MonitorCreate(BaseModel):
 
 
 class MonitorUpdate(BaseModel):
-    name: str | None = None
-    url: str | None = None
+    name: str | None = Field(default=None, max_length=MAX_MONITOR_NAME_LENGTH)
+    url: str | None = Field(default=None, max_length=MAX_MONITOR_URL_LENGTH)
     interval: int | None = Field(default=None, ge=10, le=86400)
     expected: ExpectedHttp | None = None
     steps: list[BrowserStep] | None = None
