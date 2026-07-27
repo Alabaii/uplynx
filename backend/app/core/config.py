@@ -189,7 +189,9 @@ def validate_infrastructure_credentials(settings: Settings) -> None:
         except ValueError:  # некорректный URL — не наша забота, упадёт при подключении
             continue
         if password and password in defaults:
-            problems.append(f"{name} uses the well-known default password '{password}'")
+            # сам пароль не печатаем: сообщение уходит в логи и Sentry, а имени
+            # переменной достаточно, чтобы понять, что править
+            problems.append(f"{name} uses the well-known default password from the repository")
     if not problems:
         return
     message = "; ".join(problems) + "; set your own credentials in .env"

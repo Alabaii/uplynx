@@ -18,6 +18,22 @@ services:
       ENVIRONMENT: ${ENVIRONMENT:-production}
     ports: !reset []
 
+  # ENVIRONMENT нужен каждому процессу отдельно: проверки конфигурации (дефолтные
+  # пароли БД и брокера) в development только предупреждают, а падают на старте
+  # именно в production. У шедулера к тому же свой DATABASE_URL — суперпользователь
+  # БД, владелец миграций; без этой строки его пароль никто бы не проверил
+  scheduler:
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+
+  worker-http:
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+
+  worker-browser:
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+
   frontend:
     image: pwamonitor-frontend
     build:
