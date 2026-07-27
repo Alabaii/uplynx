@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     deployment_mode: Literal["team", "enterprise"] = "team"
     team_max_users: int = 20
     team_max_monitors: int = 100
+    # сколько организаций пользователь может создать сам (enterprise). Регистрация
+    # уже даёт ему персональный воркспейс, а лимиты тарифа считаются НА организацию:
+    # без потолка любой клиент обходил бы платный план, множа бесплатные воркспейсы
+    max_owned_orgs_per_user: int = Field(default=3, ge=1)
     # сколько ДОВЕРЕННЫХ прокси стоит перед nginx приложения (он дописывает свой
     # адрес в X-Forwarded-For сам). 0 — nginx смотрит в интернет напрямую;
     # 1 — перед ним TLS-терминатор (Caddy из DEPLOY.md). Значение больше реального

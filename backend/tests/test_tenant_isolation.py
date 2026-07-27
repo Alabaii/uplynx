@@ -92,3 +92,37 @@ def test_team_mode_still_shares_the_default_org(client, db_session_factory):
             for member in db.scalars(select(OrgMember).where(OrgMember.org_id == org.id))
         }
     assert roles == {"first@example.com": "owner", "second@example.com": "member"}
+
+
+# --- потолок на самостоятельное создание организаций -----------------------------------------------
+
+
+def create_org(client, headers, slug):
+    return client.post("/api/v1/orgs", headers=headers, json={"name": slug, "slug": slug})
+
+
+def test_owned_org_limit_blocks_free_workspace_farming(client, saas, monkeypatch):
+    """Лимиты тарифа считаются на организацию: без потолка на их число клиент
+    бесплатного плана получал бы сколько угодно бесплатных воркспейсов."""
+    monkeypatch.setattr(get_settings(), "max_owned_orgs_per_user", 3)
+    headers = signup(client, "farmer@alpha.example")
+
+    # регистрация уже дала персональный воркспейс (owner) — остаётся два
+    assert create_org(client, headers, "second-org").status_code == 201
+    assert create_org(client, headers, "third-org").status_code == 201
+
+    response = create_org(client, headers, "fourth-org")
+    assert response.status_code == 403
+    assert "limit 3" in response.json()["detail"]
+
+
+def test_membership_in_someone_elses_org_does_not_count(client, saas, monkeypatch):
+    """Потолок считает только организации, где пользователь owner."""
+    monkeypatch.setattr(get_settings(), "max_owned_orgs_per_user", 2)
+    owner = signup(client, "owner@alpha.example")
+    guest = signup(client, "guest@beta.example")
+    client.post("/api/v1/orgs/current/members", headers=owner, json={"email": "guest@beta.example", "role": "admin"})
+
+    # у гостя свой воркспейс + членство в чужом: создать ещё один он всё равно может
+    assert create_org(client, guest, "guest-second").status_code == 201
+    assert create_org(client, guest, "guest-third").status_code == 403
