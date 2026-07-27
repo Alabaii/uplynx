@@ -18,7 +18,7 @@ from app.core.observability import (
 from app.models import MaintenanceWindow, Monitor, Organization, Plan, SchedulerHeartbeat
 from app.services.plans import min_interval_for, plan_gating_active
 from app.services.queue import DEAD_LETTER_QUEUES, RabbitPublisher, task_for_monitor
-from app.services.retention import ensure_partitions, rollup_and_prune
+from app.services.retention import ensure_partitions, purge_expired_tokens, rollup_and_prune
 
 logger = logging.getLogger(__name__)
 
@@ -186,12 +186,17 @@ def run_forever() -> None:
                     archived_days, pruned_rows = rollup_and_prune(db)
                     # ключи, которые перестали обращаться, сами себя не вычистят
                     stale_limits = purge_stale_rate_limits(db)
+                    # то же с одноразовыми токенами: ротация refresh пишет строку
+                    # на каждое продление сессии, удалять их было некому
+                    expired_tokens = purge_expired_tokens(db)
                     db.commit()
                 logger.info(
-                    "retention rollup: archived %s monitor-days, pruned %s raw results, %s stale rate-limit rows",
+                    "retention rollup: archived %s monitor-days, pruned %s raw results, "
+                    "%s stale rate-limit rows, %s expired tokens",
                     archived_days,
                     pruned_rows,
                     stale_limits,
+                    expired_tokens,
                 )
             except Exception:  # noqa: BLE001
                 logger.exception("retention rollup failed")

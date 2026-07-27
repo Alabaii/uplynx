@@ -5,7 +5,16 @@ from sqlalchemy import case, delete, func, select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models import CheckResult, Monitor, Organization, Plan, UptimeDaily
+from app.models import (
+    CheckResult,
+    EmailVerificationToken,
+    Monitor,
+    Organization,
+    PasswordResetToken,
+    Plan,
+    RefreshToken,
+    UptimeDaily,
+)
 from app.services.plans import plan_gating_active
 
 # месячные партиции check_results (только postgres): check_results_YYYY_MM
@@ -34,6 +43,27 @@ def ensure_partitions(db: Session) -> None:
     for offset in (0, 1):
         db.execute(text(_partition_ddl(_month_start(today, offset))))
     db.commit()
+
+
+def purge_expired_tokens(db: Session) -> int:
+    """Удаляет одноразовые токены, у которых истёк срок. Без commit.
+
+    Строки копились без всякой границы. Больнее всего с refresh: ротация выдаёт
+    новый токен на каждое продление сессии (access живёт 15 минут), старый лишь
+    помечается revoked_at — активный пользователь оставлял около сотни строк
+    в сутки, и не удалял их никто.
+
+    Границей взят именно expires_at, а не момент отзыва: предъявление уже
+    отозванного refresh — признак кражи, по нему гасятся все сессии
+    пользователя (см. endpoints/auth.py). Пока не вышел естественный срок
+    токена, строка нужна, чтобы этот сигнал не превратился в обычный 401.
+    После него таблица ограничена окном refresh_token_expire_days.
+    """
+    now = datetime.now(timezone.utc)
+    removed = 0
+    for model in (RefreshToken, PasswordResetToken, EmailVerificationToken):
+        removed += db.execute(delete(model).where(model.expires_at < now)).rowcount
+    return removed
 
 
 def retention_cutoffs(db: Session) -> list[tuple[datetime, list[int] | None]]:
