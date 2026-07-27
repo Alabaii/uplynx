@@ -248,7 +248,11 @@ class ConfigVersion(Base):
 class PushSubscription(Base):
     __tablename__ = "push_subscriptions"
     __table_args__ = (
-        UniqueConstraint("endpoint", name="uq_push_subscriptions_endpoint"),
+        # уникальность внутри организации, а не глобальная: таблица org-scoped и
+        # закрыта RLS, поэтому подписку другой организации запрос попросту не
+        # видит — глобальный констрейнт превращал повторную подписку того же
+        # устройства в другом воркспейсе в IntegrityError вместо обновления
+        UniqueConstraint("org_id", "endpoint", name="uq_push_subscriptions_org_endpoint"),
         Index("ix_push_subscriptions_org_id", "org_id"),
     )
 
