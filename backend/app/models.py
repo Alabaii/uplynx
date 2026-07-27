@@ -167,6 +167,10 @@ class Monitor(Base):
     ssl_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # самый острый порог (в днях), по которому уже отправлен ssl-алерт; NULL — не алертили
     ssl_alerted_days: Mapped[int | None] = mapped_column(Integer)
+    # когда сертификат снимали в последний раз; NULL — ещё ни разу. Срок действия
+    # меняется раз в несколько месяцев, а снятие стоит отдельного соединения с
+    # полным TLS-хендшейком, поэтому оно идёт не на каждой проверке
+    ssl_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # архивация: монитор исчезает из продукта и освобождает слаг, но строка и
     # история проверок остаются в БД (восстановимо, не рвёт внешние ключи)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -248,7 +252,11 @@ class ConfigVersion(Base):
 class PushSubscription(Base):
     __tablename__ = "push_subscriptions"
     __table_args__ = (
-        UniqueConstraint("endpoint", name="uq_push_subscriptions_endpoint"),
+        # уникальность внутри организации, а не глобальная: таблица org-scoped и
+        # закрыта RLS, поэтому подписку другой организации запрос попросту не
+        # видит — глобальный констрейнт превращал повторную подписку того же
+        # устройства в другом воркспейсе в IntegrityError вместо обновления
+        UniqueConstraint("org_id", "endpoint", name="uq_push_subscriptions_org_endpoint"),
         Index("ix_push_subscriptions_org_id", "org_id"),
     )
 

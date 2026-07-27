@@ -72,6 +72,13 @@ class Settings(BaseSettings):
     trusted_proxy_hops: int = Field(default=0, ge=0)
     login_rate_limit_attempts: int = 5
     login_rate_limit_window_seconds: int = 60
+    # второй лимит входа — на один адрес независимо от адресата: ключ ip+email
+    # ограничивает подбор пароля к КОНКРЕТНОМУ аккаунту, но не перебор одного
+    # пароля по списку email (password spraying), где каждая попытка идёт в свой
+    # ключ. Потолок щедрый: успешный вход сбрасывает счётчик, поэтому офис за
+    # общим NAT его не достигает, а скриптовый перебор — сразу
+    login_ip_rate_limit_attempts: int = 20
+    login_ip_rate_limit_window_seconds: int = 300
     register_rate_limit_attempts: int = 10
     register_rate_limit_window_seconds: int = 300
     forgot_rate_limit_attempts: int = 5
@@ -189,7 +196,9 @@ def validate_infrastructure_credentials(settings: Settings) -> None:
         except ValueError:  # некорректный URL — не наша забота, упадёт при подключении
             continue
         if password and password in defaults:
-            problems.append(f"{name} uses the well-known default password '{password}'")
+            # сам пароль не печатаем: сообщение уходит в логи и Sentry, а имени
+            # переменной достаточно, чтобы понять, что править
+            problems.append(f"{name} uses the well-known default password from the repository")
     if not problems:
         return
     message = "; ".join(problems) + "; set your own credentials in .env"

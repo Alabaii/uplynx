@@ -102,6 +102,63 @@ def test_login_rate_limited_after_failures(client, monkeypatch):
     assert client.post("/api/v1/auth/login", json=other).status_code == 200
 
 
+def test_spraying_many_accounts_from_one_ip_is_limited(client, monkeypatch):
+    """Перебор одного пароля по списку адресатов ключом ip+email не ловился.
+
+    Каждый email давал свои пять попыток, поэтому атака с одного адреса шла
+    сколько угодно долго — просто по новому аккаунту на каждый залп.
+    """
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "login_ip_rate_limit_attempts", 4)
+
+    for index in range(6):
+        client.post(
+            "/api/v1/auth/register", json={"email": f"user{index}@example.com", "password": "password123"}
+        )
+
+    statuses = [
+        client.post(
+            "/api/v1/auth/login", json={"email": f"user{index}@example.com", "password": "guess"}
+        ).status_code
+        for index in range(6)
+    ]
+    # первые попытки — обычный отказ, дальше вступает лимит на адрес
+    assert statuses[:4] == [401, 401, 401, 401]
+    assert statuses[4:] == [429, 429]
+
+    # и верный пароль с того же адреса тоже упирается в лимит
+    blocked = client.post("/api/v1/auth/login", json={"email": "user0@example.com", "password": "password123"})
+    assert blocked.status_code == 429
+    assert "Retry-After" in blocked.headers
+
+
+def test_successful_login_resets_ip_counter(client, monkeypatch):
+    """Общий адрес (офис за NAT) не запирается чужими опечатками после успеха."""
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "login_ip_rate_limit_attempts", 3)
+
+    for index in range(2):
+        client.post(
+            "/api/v1/auth/register", json={"email": f"mate{index}@example.com", "password": "password123"}
+        )
+
+    client.post("/api/v1/auth/login", json={"email": "mate0@example.com", "password": "typo"})
+    client.post("/api/v1/auth/login", json={"email": "mate1@example.com", "password": "typo"})
+    assert (
+        client.post("/api/v1/auth/login", json={"email": "mate0@example.com", "password": "password123"}).status_code
+        == 200
+    )
+    # счётчик адреса сброшен успешным входом — у коллеги снова полный запас
+    assert (
+        client.post("/api/v1/auth/login", json={"email": "mate1@example.com", "password": "password123"}).status_code
+        == 200
+    )
+
+
 def test_successful_login_resets_counter(client, monkeypatch):
     from app.core.config import get_settings
 

@@ -131,3 +131,71 @@ def test_check_now_queue_unavailable_503(client, auth_headers):
         app.dependency_overrides.pop(get_publisher, None)
     assert response.status_code == 503
     assert broken.closed is True
+
+
+def enterprise_org_on_free_plan(client, db_session_factory, monkeypatch, headers):
+    """enterprise-режим и организация на free (минимальный интервал 300 секунд)."""
+    from app.core.config import get_settings
+    from app.models import Organization
+    from app.services.plans import ensure_default_plans
+
+    monkeypatch.setattr(get_settings(), "deployment_mode", "enterprise")
+    org_id = client.get("/api/v1/auth/me", headers=headers).json()["organization"]["id"]
+    with db_session_factory() as db:
+        ensure_default_plans(db)
+        db.get(Organization, org_id).plan_slug = "free"
+        db.commit()
+
+
+def test_manual_check_respects_plan_interval(client, fake_publisher, db_session_factory, monkeypatch):
+    """Ручная проверка не должна опрашивать цель чаще, чем разрешает тариф.
+
+    Раньше частоту задавал только общий лимит мутаций — 60 в минуту против
+    разрешённых планом 300 секунд.
+    """
+    headers = register_and_login(client, "owner@example.com")
+    enterprise_org_on_free_plan(client, db_session_factory, monkeypatch, headers)
+    assert (
+        client.post(
+            "/api/v1/monitors", json={**MONITOR_PAYLOAD, "interval": 300}, headers=headers
+        ).status_code
+        == 201
+    )
+
+    assert client.post("/api/v1/monitors/site/check", headers=headers).status_code == 202
+    blocked = client.post("/api/v1/monitors/site/check", headers=headers)
+    assert blocked.status_code == 429
+    assert "Retry-After" in blocked.headers
+    assert "300" in blocked.json()["detail"]
+    # вторая задача в очередь не ушла
+    assert len(fake_publisher.tasks) == 1
+
+
+def test_manual_check_limit_is_per_monitor(client, fake_publisher, db_session_factory, monkeypatch):
+    headers = register_and_login(client, "owner@example.com")
+    enterprise_org_on_free_plan(client, db_session_factory, monkeypatch, headers)
+    for slug in ("site", "second"):
+        assert (
+            client.post(
+                "/api/v1/monitors", json={**MONITOR_PAYLOAD, "id": slug, "interval": 300}, headers=headers
+            ).status_code
+            == 201
+        )
+
+    assert client.post("/api/v1/monitors/site/check", headers=headers).status_code == 202
+    # соседний монитор своего лимита не расходовал
+    assert client.post("/api/v1/monitors/second/check", headers=headers).status_code == 202
+    assert len(fake_publisher.tasks) == 2
+
+
+def test_team_mode_does_not_limit_manual_checks(client, fake_publisher, monkeypatch):
+    """team: тарифы декоративны, инсталляция обслуживает одну команду."""
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "deployment_mode", "team")
+    headers = register_and_login(client, "owner@example.com")
+    assert client.post("/api/v1/monitors", json=MONITOR_PAYLOAD, headers=headers).status_code == 201
+
+    assert client.post("/api/v1/monitors/site/check", headers=headers).status_code == 202
+    assert client.post("/api/v1/monitors/site/check", headers=headers).status_code == 202
+    assert len(fake_publisher.tasks) == 2

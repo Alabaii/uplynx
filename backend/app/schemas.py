@@ -364,6 +364,11 @@ class CheckTask(BaseModel):
     timeout_seconds: int = 30
     created_at: datetime
     attempt: int = 1
+    # снимать ли срок TLS-сертификата этой проверкой. Решает публикующая сторона:
+    # это отдельное соединение с полным хендшейком, а значение живёт месяцами.
+    # True по умолчанию — задачи, опубликованные до появления поля, ведут себя
+    # как раньше
+    collect_ssl: bool = True
 
 
 class OrgSecretUpsert(BaseModel):

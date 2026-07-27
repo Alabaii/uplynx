@@ -236,3 +236,73 @@ def test_monitor_read_exposes_ssl_days_left(client, auth_headers, db_session_fac
     body = client.get("/api/v1/monitors/site", headers=auth_headers).json()
     assert body["ssl_days_left"] == 9
     assert body["ssl_expires_at"] is not None
+
+
+# --- периодичность снятия сертификата ------------------------------------------------------------
+
+
+def make_monitor(url="https://example.com", monitor_type="http", ssl_checked_at=None):
+    return Monitor(
+        id=1,
+        user_id=1,
+        org_id=1,
+        slug="site",
+        name="Site",
+        type=monitor_type,
+        status="up",
+        url=url,
+        interval=60,
+        config_json={},
+        enabled=True,
+        ssl_checked_at=ssl_checked_at,
+    )
+
+
+def test_ssl_refresh_due_only_for_https_http_monitors():
+    from app.services.queue import ssl_refresh_due
+
+    now = datetime.now(timezone.utc)
+    assert ssl_refresh_due(make_monitor(), now) is True
+    assert ssl_refresh_due(make_monitor(url="http://example.com"), now) is False
+    assert ssl_refresh_due(make_monitor(url=None, monitor_type="browser"), now) is False
+
+
+def test_ssl_refresh_due_not_more_than_once_a_day():
+    from app.services.queue import SSL_REFRESH_INTERVAL, ssl_refresh_due
+
+    now = datetime.now(timezone.utc)
+    assert ssl_refresh_due(make_monitor(ssl_checked_at=now - timedelta(minutes=5)), now) is False
+    assert ssl_refresh_due(make_monitor(ssl_checked_at=now - SSL_REFRESH_INTERVAL), now) is True
+    # sqlite отдаёт naive datetime — сравнение не должно падать
+    naive = (now - SSL_REFRESH_INTERVAL - timedelta(hours=1)).replace(tzinfo=None)
+    assert ssl_refresh_due(make_monitor(ssl_checked_at=naive), now) is True
+
+
+def test_http_check_skips_certificate_when_not_requested(monkeypatch):
+    """Сертификат снимается отдельным соединением — без просьбы его не должно быть."""
+    import httpx
+
+    from app.services import checks
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("certificate must not be fetched when collect_ssl is False")
+
+    monkeypatch.setattr(checks, "fetch_ssl_expiry", refuse)
+
+    async def fake_fetch(client, url, allow_private):
+        return httpx.Response(200, content=b"ok", request=httpx.Request("GET", url)), url
+
+    monkeypatch.setattr(checks, "fetch_following_redirects", fake_fetch)
+
+    task = CheckTask(
+        task_id="no-ssl",
+        monitor_id=1,
+        type="http",
+        url="https://example.com",
+        config={},
+        created_at=datetime.now(timezone.utc),
+        collect_ssl=False,
+    )
+    result = asyncio.run(checks.run_http_check(task))
+    assert result["status"] == "up"
+    assert "ssl" not in result["details"]

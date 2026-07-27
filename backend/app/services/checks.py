@@ -160,12 +160,15 @@ async def run_http_check(task: CheckTask) -> dict[str, Any]:
         if truncated:
             # body_contains искали только в прочитанной части — это должно быть видно
             details["body_truncated_at_bytes"] = MAX_BODY_BYTES
-        # хост отвечает — заодно снимаем срок сертификата (blocking socket → отдельный поток)
-        ssl_info = ssl_details(
-            await asyncio.to_thread(fetch_ssl_expiry, task.url, allow_private=allow_private)
-        )
-        if ssl_info:
-            details["ssl"] = ssl_info
+        if task.collect_ssl:
+            # хост отвечает — заодно снимаем срок сертификата (blocking socket →
+            # отдельный поток). Отдельное соединение с полным хендшейком, поэтому
+            # публикующая сторона просит об этом не чаще раза в сутки
+            ssl_info = ssl_details(
+                await asyncio.to_thread(fetch_ssl_expiry, task.url, allow_private=allow_private)
+            )
+            if ssl_info:
+                details["ssl"] = ssl_info
         return {
             "status": check_status,
             "response_time_ms": elapsed,
