@@ -60,6 +60,10 @@ services:
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
       # team (лимиты пользователей/мониторов) | enterprise (без лимитов)
       DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-team}
+      # сколько организаций клиент может создать сам (enterprise): лимиты тарифа
+      # считаются на организацию, поэтому без потолка платный план обходится
+      # созданием новых бесплатных воркспейсов
+      MAX_OWNED_ORGS_PER_USER: ${MAX_OWNED_ORGS_PER_USER:-3}
       # SSRF-защита: false — мониторы не могут вести во внутреннюю сеть (SaaS);
       # true — разрешить приватные адреса (on-prem мониторинг внутренних сервисов)
       ALLOW_PRIVATE_TARGETS: ${ALLOW_PRIVATE_TARGETS:-false}
