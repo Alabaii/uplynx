@@ -43,6 +43,25 @@ def declare_check_queue(channel: "pika.adapters.blocking_connection.BlockingChan
     )
 
 
+async def declare_check_queue_async(channel, queue: str):  # type: ignore[no-untyped-def]
+    """То же, что declare_check_queue, но для aio-pika-канала воркера.
+
+    Аргументы объявления обязаны совпадать с синхронной версией (её зовёт
+    publisher) — иначе RabbitMQ отвергнет declare с PRECONDITION_FAILED.
+    """
+    from aio_pika import ExchangeType
+
+    exchange = await channel.declare_exchange(DLX_EXCHANGE, ExchangeType.DIRECT, durable=True)
+    dead_queue = DEAD_LETTER_QUEUES[queue]
+    dead = await channel.declare_queue(dead_queue, durable=True)
+    await dead.bind(exchange, routing_key=dead_queue)
+    return await channel.declare_queue(
+        queue,
+        durable=True,
+        arguments={"x-dead-letter-exchange": DLX_EXCHANGE, "x-dead-letter-routing-key": dead_queue},
+    )
+
+
 def task_for_monitor(monitor: Monitor, timeout_seconds: int = 30) -> CheckTask:
     return CheckTask(
         task_id=str(uuid4()),

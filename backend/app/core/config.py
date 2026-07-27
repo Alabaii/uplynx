@@ -31,7 +31,13 @@ class Settings(BaseSettings):
     # порт /metrics для scheduler/воркеров; 0 — не поднимать (API отдаёт /metrics роутом)
     metrics_port: int = 0
     retention_days: int = 365
-    browser_concurrency: int = 2
+    # сколько проверок воркер выполняет одновременно (prefetch очереди). Проверка
+    # почти всё время ждёт сеть, поэтому потолок здесь — не CPU, а число мониторов,
+    # которые не должны ждать друг друга: при 1 недоступный адрес занимал воркер
+    # на весь check_timeout_seconds и останавливал проверки всех организаций
+    http_concurrency: int = Field(default=10, ge=1)
+    # браузерных проверок одновременно — каждая держит свой Chromium (память!)
+    browser_concurrency: int = Field(default=2, ge=1)
     # SSRF-защита: по умолчанию мониторы не могут вести во внутреннюю сеть.
     # on-prem-инсталляции ставят true, чтобы мониторить внутренние сервисы.
     allow_private_targets: bool = False
