@@ -110,19 +110,9 @@ def test_http_worker_blocks_private_literal():
     assert "non-public" in result["error"] or "not allowed" in result["error"]
 
 
-def test_http_worker_blocks_redirect_to_private(monkeypatch):
-    # первый хост публичный, но 302 уводит на приватный — hook на каждом запросе ловит редирект
-    monkeypatch.setattr(
-        "socket.getaddrinfo",
-        fake_getaddrinfo({"public.example.com": ["93.184.216.34"], "internal.example.com": ["10.0.0.5"]}),
-    )
-
+def mock_http_transport(monkeypatch, handler):
+    """Подменяет транспорт httpx у воркера, оставляя остальную логику проверки живой."""
     import httpx
-
-    def handler(request):
-        if request.url.host == "public.example.com":
-            return httpx.Response(302, headers={"Location": "http://internal.example.com/secret"})
-        return httpx.Response(200, text="should never reach here")
 
     transport = httpx.MockTransport(handler)
     real_client = httpx.AsyncClient
@@ -133,9 +123,107 @@ def test_http_worker_blocks_redirect_to_private(monkeypatch):
 
     monkeypatch.setattr("app.services.checks.httpx.AsyncClient", client_factory)
 
+
+def test_http_worker_blocks_redirect_to_private(monkeypatch):
+    # первый хост публичный, но 302 уводит на приватный: каждый хоп цепочки
+    # проходит ту же проверку, что и исходный URL
+    monkeypatch.setattr(
+        "socket.getaddrinfo",
+        fake_getaddrinfo({"public.example.com": ["93.184.216.34"], "internal.example.com": ["10.0.0.5"]}),
+    )
+
+    import httpx
+
+    def handler(request):
+        # адрес запроса запиннен на проверенный IP, имя хоста едет в Host
+        if request.headers.get("host") == "public.example.com":
+            return httpx.Response(302, headers={"Location": "http://internal.example.com/secret"})
+        return httpx.Response(200, text="should never reach here")
+
+    mock_http_transport(monkeypatch, handler)
+
     result = asyncio.run(run_http_check(make_task("http://public.example.com")))
     assert result["status"] == "down"
     assert result["details"].get("blocked") is True
+
+
+def test_worker_connects_to_the_verified_address(monkeypatch):
+    """Соединение идёт на проверенный адрес, имя хоста — в Host и SNI."""
+    monkeypatch.setattr("socket.getaddrinfo", fake_getaddrinfo({"shop.example.com": ["93.184.216.34"]}))
+
+    import httpx
+
+    seen = {}
+
+    def handler(request):
+        seen["url_host"] = request.url.host
+        seen["host_header"] = request.headers.get("host")
+        return httpx.Response(200, text="ok")
+
+    mock_http_transport(monkeypatch, handler)
+    monkeypatch.setattr("app.services.checks.fetch_ssl_expiry", lambda *a, **kw: None)
+
+    result = asyncio.run(run_http_check(make_task("http://shop.example.com/health")))
+    assert result["status"] == "up"
+    assert seen["url_host"] == "93.184.216.34"
+    assert seen["host_header"] == "shop.example.com"
+
+
+def test_dns_rebinding_cannot_move_the_connection_inside(monkeypatch):
+    """Хост, отдающий приватный адрес ПОСЛЕ проверки, не уводит соединение внутрь.
+
+    Заглушка резолва имитирует rebinding: первый ответ публичный, дальше —
+    приватный. Раньше проверка и соединение резолвили имя независимо, поэтому
+    запрос уходил на 10.0.0.5; теперь адрес фиксируется в момент проверки.
+    """
+    import socket as socket_module
+
+    answers = iter([["93.184.216.34"], ["10.0.0.5"], ["10.0.0.5"]])
+    last = {"addresses": ["93.184.216.34"]}
+
+    def flipping_resolver(host, port, *args, **kwargs):
+        last["addresses"] = next(answers, last["addresses"])
+        return [
+            (socket_module.AF_INET, socket_module.SOCK_STREAM, 6, "", (ip, port or 0))
+            for ip in last["addresses"]
+        ]
+
+    monkeypatch.setattr("socket.getaddrinfo", flipping_resolver)
+
+    import httpx
+
+    connected_to = []
+
+    def handler(request):
+        connected_to.append(request.url.host)
+        return httpx.Response(200, text="ok")
+
+    mock_http_transport(monkeypatch, handler)
+    monkeypatch.setattr("app.services.checks.fetch_ssl_expiry", lambda *a, **kw: None)
+
+    result = asyncio.run(run_http_check(make_task("http://rebind.example.com/")))
+    assert result["status"] == "up"
+    assert connected_to == ["93.184.216.34"]
+
+
+def test_redirect_loop_is_bounded(monkeypatch):
+    """Бесконечная цепочка редиректов обрывается, а не крутится до таймаута."""
+    monkeypatch.setattr("socket.getaddrinfo", fake_getaddrinfo({"loop.example.com": ["93.184.216.34"]}))
+
+    import httpx
+
+    hops = []
+
+    def handler(request):
+        hops.append(request.url.path)
+        return httpx.Response(302, headers={"Location": f"http://loop.example.com{request.url.path}x"})
+
+    mock_http_transport(monkeypatch, handler)
+
+    result = asyncio.run(run_http_check(make_task("http://loop.example.com/")))
+    assert result["status"] == "down"
+    assert "too many redirects" in result["error"]
+    assert len(hops) <= 7  # MAX_REDIRECTS + запрос сверх лимита
 
 
 # --- API ----------------------------------------------------------------------------------------
