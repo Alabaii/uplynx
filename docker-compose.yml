@@ -31,6 +31,10 @@ services:
       # без символов, требующих URL-экранирования (@ : / ?)
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    volumes:
+      # политика хранения для *.dlq — применяется вручную после первого запуска:
+      # docker compose exec rabbitmq sh /rabbitmq-policies.sh
+      - ./deploy/rabbitmq-policies.sh:/rabbitmq-policies.sh:ro
     ports:
       - "5672:5672"
       - "15672:15672"
