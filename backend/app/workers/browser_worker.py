@@ -15,8 +15,6 @@ from app.workers.base import consume_forever
 
 logger = logging.getLogger(__name__)
 
-semaphore = asyncio.Semaphore(get_settings().browser_concurrency)
-
 
 def secrets_for_task(task: CheckTask) -> dict[str, str]:
     """Секреты организации монитора — только если сценарий вообще их использует.
@@ -32,11 +30,10 @@ def secrets_for_task(task: CheckTask) -> dict[str, str]:
         return load_org_secrets(db, org_id) if org_id is not None else {}
 
 
-async def limited_browser_check(task: CheckTask) -> dict:
-    async with semaphore:
-        # чтение из БД синхронное (SQLAlchemy) — не блокируем event loop
-        secrets = await asyncio.to_thread(secrets_for_task, task)
-        return await run_browser_check(task, secrets=secrets)
+async def browser_check_with_secrets(task: CheckTask) -> dict:
+    # чтение из БД синхронное (SQLAlchemy) — не блокируем event loop
+    secrets = await asyncio.to_thread(secrets_for_task, task)
+    return await run_browser_check(task, secrets=secrets)
 
 
 if __name__ == "__main__":
@@ -44,4 +41,7 @@ if __name__ == "__main__":
     validate_infrastructure_credentials(get_settings())
     init_sentry("worker-browser")
     start_metrics_server()
-    consume_forever(BROWSER_QUEUE, limited_browser_check)
+    # число одновременных проверок ограничивает prefetch очереди: семафор внутри
+    # обработчика этого не делал — на каждое сообщение поднимался свой event loop,
+    # и его счётчик всегда был полон
+    consume_forever(BROWSER_QUEUE, browser_check_with_secrets, concurrency=get_settings().browser_concurrency)

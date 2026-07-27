@@ -30,13 +30,23 @@ class Settings(BaseSettings):
     # heartbeat шедулера старше этого — /health/scheduler отдаёт 503 (liveness)
     scheduler_heartbeat_stale_seconds: int = 30
     check_timeout_seconds: int = 30
+    # предел на browser-сценарий ЦЕЛИКОМ: check_timeout_seconds ограничивает
+    # отдельный шаг, поэтому длинный сценарий (или шаги, каждый из которых почти
+    # укладывается в свой таймаут) держал бы воркер сколько угодно долго
+    browser_scenario_timeout_seconds: int = Field(default=120, ge=10)
     # Sentry: пустой DSN — отключён (dev/self-hosted работают без него)
     sentry_dsn: str | None = None
     sentry_traces_sample_rate: float = 0.0
     # порт /metrics для scheduler/воркеров; 0 — не поднимать (API отдаёт /metrics роутом)
     metrics_port: int = 0
     retention_days: int = 365
-    browser_concurrency: int = 2
+    # сколько проверок воркер выполняет одновременно (prefetch очереди). Проверка
+    # почти всё время ждёт сеть, поэтому потолок здесь — не CPU, а число мониторов,
+    # которые не должны ждать друг друга: при 1 недоступный адрес занимал воркер
+    # на весь check_timeout_seconds и останавливал проверки всех организаций
+    http_concurrency: int = Field(default=10, ge=1)
+    # браузерных проверок одновременно — каждая держит свой Chromium (память!)
+    browser_concurrency: int = Field(default=2, ge=1)
     # SSRF-защита: по умолчанию мониторы не могут вести во внутреннюю сеть.
     # on-prem-инсталляции ставят true, чтобы мониторить внутренние сервисы.
     allow_private_targets: bool = False

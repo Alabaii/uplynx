@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 import httpx
 
 from app.core.config import get_settings
-from app.core.ssrf import BlockedTargetError, validate_public_url
+from app.core.ssrf import BlockedTargetError, resolve_public_address, validate_public_url
 from app.schemas import CheckTask
 
 ENV_PLACEHOLDER_RE = re.compile(r"\$\{([A-Z0-9_]+)\}")
@@ -24,6 +24,10 @@ CERT_DATE_FORMAT = "%b %d %H:%M:%S %Y %Z"
 # и воркер утянул бы его целиком в память
 MAX_BODY_BYTES = 2_000_000
 
+# длина цепочки редиректов (httpx по умолчанию 20): каждый хоп — отдельный
+# резолв с проверкой, а сайту для нормальной работы столько переходов не нужно
+MAX_REDIRECTS = 5
+
 
 def parse_cert_not_after(not_after: str) -> datetime:
     return datetime.strptime(not_after, CERT_DATE_FORMAT).replace(tzinfo=timezone.utc)
@@ -35,12 +39,12 @@ def fetch_ssl_expiry(url: str, timeout: float = 10.0, allow_private: bool = Fals
     if parsed.scheme != "https" or not parsed.hostname:
         return None
     try:
-        # отдельное соединение мимо httpx-хука: адрес резолвится заново, поэтому
-        # проверяем его сами — иначе смена DNS между запросом и снятием сертификата
-        # уводила бы это соединение во внутреннюю сеть
-        validate_public_url(url, allow_private=allow_private)
+        # отдельное соединение мимо httpx: подключаемся к проверенному адресу, а имя
+        # хоста уходит только в SNI — иначе повторный резолв между проверкой и
+        # соединением уводил бы это соединение во внутреннюю сеть
+        address = resolve_public_address(url, allow_private=allow_private) or parsed.hostname
         context = ssl.create_default_context()
-        with socket.create_connection((parsed.hostname, parsed.port or 443), timeout=timeout) as sock:
+        with socket.create_connection((address, parsed.port or 443), timeout=timeout) as sock:
             with context.wrap_socket(sock, server_hostname=parsed.hostname) as tls:
                 cert = tls.getpeercert()
         not_after = (cert or {}).get("notAfter")
@@ -94,26 +98,62 @@ async def read_capped_body(response: httpx.Response) -> tuple[str, bool]:
     return raw.decode(response.encoding or "utf-8", errors="replace"), truncated
 
 
+def pin_target(url: str, allow_private: bool) -> tuple[str, str | None]:
+    """(URL с проверенным адресом вместо имени, исходное имя хоста).
+
+    Проверить адрес и тут же отдать имя клиенту недостаточно: httpx резолвит его
+    заново перед соединением, и хост под контролем арендатора успевает подменить
+    ответ DNS на приватный (rebinding). Поэтому в URL подставляется уже
+    проверенный адрес, а имя уезжает в заголовке Host и в SNI — сертификат
+    проверяется по нему, как при обычном запросе.
+    """
+    address = resolve_public_address(url, allow_private=allow_private)
+    parsed = httpx.URL(url)
+    if address is None:  # allow_private: on-prem ходит по именам как раньше
+        return url, None
+    netloc_host = f"[{address}]" if ":" in address else address
+    pinned = parsed.copy_with(host=netloc_host)
+    return str(pinned), parsed.host
+
+
+async def fetch_following_redirects(
+    client: httpx.AsyncClient, url: str, allow_private: bool
+) -> tuple[httpx.Response, str]:
+    """GET с ручной обработкой редиректов: каждый хоп проверяется и пиннится отдельно.
+
+    follow_redirects=True вернул бы обработку редиректов внутрь httpx, где хост
+    резолвится заново и пиннинг теряется. Location может увести на приватный
+    адрес — поэтому цепочка идёт через ту же проверку, что и исходный URL.
+    """
+    for _ in range(MAX_REDIRECTS + 1):
+        pinned, host = await asyncio.to_thread(pin_target, url, allow_private)
+        headers = {"Host": host} if host else None
+        extensions = {"sni_hostname": host} if host and httpx.URL(url).scheme == "https" else None
+        request = client.build_request("GET", pinned, headers=headers, extensions=extensions)
+        response = await client.send(request, stream=True)
+        location = response.headers.get("location")
+        if response.is_redirect and location:
+            await response.aclose()
+            url = str(httpx.URL(url).join(location))
+            continue
+        return response, url
+    raise BlockedTargetError(f"too many redirects (more than {MAX_REDIRECTS})")
+
+
 async def run_http_check(task: CheckTask) -> dict[str, Any]:
     if not task.url:
         return {"status": "down", "response_time_ms": None, "error": "missing url", "details": {}}
     expected = task.config.get("expected") or {}
     allow_private = get_settings().allow_private_targets
 
-    async def guard_request(request: httpx.Request) -> None:
-        # хук срабатывает и на исходный запрос, и на каждый редирект: Location
-        # может увести на приватный адрес в обход проверки начального URL
-        await asyncio.to_thread(validate_public_url, str(request.url), allow_private=allow_private)
-
     started = time.perf_counter()
     try:
-        async with httpx.AsyncClient(
-            timeout=task.timeout_seconds,
-            follow_redirects=True,
-            event_hooks={"request": [guard_request]},
-        ) as client:
-            async with client.stream("GET", task.url) as response:
+        async with httpx.AsyncClient(timeout=task.timeout_seconds, follow_redirects=False) as client:
+            response, _ = await fetch_following_redirects(client, task.url, allow_private)
+            try:
                 body, truncated = await read_capped_body(response)
+            finally:
+                await response.aclose()
         elapsed = int((time.perf_counter() - started) * 1000)
         check_status, error = classify_http_result(elapsed, response.status_code, body, expected)
         details: dict[str, Any] = {"status_code": response.status_code}
@@ -240,8 +280,18 @@ class PlaywrightBrowserRunner:
                 try:
                     page = await browser.new_page()
                     page.set_default_timeout(task.timeout_seconds * 1000)
+                    budget = get_settings().browser_scenario_timeout_seconds
                     try:
-                        await execute_steps(page, steps, secrets)
+                        # дедлайн на сценарий целиком: set_default_timeout ограничивает
+                        # только отдельный шаг, а их в сценарии до MAX_SCENARIO_STEPS
+                        await asyncio.wait_for(execute_steps(page, steps, secrets), timeout=budget)
+                    except asyncio.TimeoutError:
+                        return {
+                            "status": "down",
+                            "response_time_ms": None,
+                            "error": f"scenario exceeded the {budget}s budget",
+                            "details": {"steps": len(steps), "scenario_timeout_seconds": budget},
+                        }
                     except StepFailure as failure:
                         return {
                             "status": "down",

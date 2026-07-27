@@ -132,13 +132,20 @@ class AuditLogRead(BaseModel):
     actor_email: str | None = None
 
 
+# Потолок на сценарий: таймаут Playwright действует НА ШАГ, поэтому без предела
+# длины сценарий из сотен шагов занимал бы браузерный воркер часами — в SaaS этого
+# достаточно, чтобы одна организация остановила браузерные проверки остальных.
+# Живой сценарий (логин, корзина, оформление) укладывается в единицы шагов.
+MAX_SCENARIO_STEPS = 50
+
+
 class BrowserStep(BaseModel):
     action: BrowserAction
-    url: str | None = None
-    selector: str | None = None
-    text: str | None = None
-    value: str | None = None
-    contains: str | None = None
+    url: str | None = Field(default=None, max_length=2048)
+    selector: str | None = Field(default=None, max_length=500)
+    text: str | None = Field(default=None, max_length=1000)
+    value: str | None = Field(default=None, max_length=1000)
+    contains: str | None = Field(default=None, max_length=1000)
 
 
 class ExpectedHttp(BaseModel):
@@ -154,7 +161,7 @@ class ConfigMonitor(BaseModel):
     url: str | None = None
     interval: int = Field(ge=10, le=86400)
     expected: ExpectedHttp | None = None
-    steps: list[BrowserStep] | None = None
+    steps: list[BrowserStep] | None = Field(default=None, max_length=MAX_SCENARIO_STEPS)
     enabled: bool = True
     # анти-флаппинг: статус меняется после N одинаковых результатов подряд
     confirmations: int = Field(default=1, ge=1, le=10)
@@ -220,7 +227,7 @@ class MonitorCreate(BaseModel):
     url: str | None = None
     interval: int = Field(ge=10, le=86400)
     expected: ExpectedHttp | None = None
-    steps: list[BrowserStep] | None = None
+    steps: list[BrowserStep] | None = Field(default=None, max_length=MAX_SCENARIO_STEPS)
     enabled: bool = True
     confirmations: int = Field(default=1, ge=1, le=10)
     renotify_interval_minutes: int | None = Field(default=None, ge=1, le=1440)
@@ -231,7 +238,7 @@ class MonitorUpdate(BaseModel):
     url: str | None = None
     interval: int | None = Field(default=None, ge=10, le=86400)
     expected: ExpectedHttp | None = None
-    steps: list[BrowserStep] | None = None
+    steps: list[BrowserStep] | None = Field(default=None, max_length=MAX_SCENARIO_STEPS)
     enabled: bool | None = None
     # статус считает пайплайн проверок: разрешать его выставлять извне значит
     # позволить нарисовать «up» на публичной статус-странице лежащего сервиса

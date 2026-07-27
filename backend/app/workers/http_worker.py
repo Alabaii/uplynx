@@ -12,4 +12,4 @@ if __name__ == "__main__":
     validate_infrastructure_credentials(get_settings())
     init_sentry("worker-http")
     start_metrics_server()
-    consume_forever(HTTP_QUEUE, run_http_check)
+    consume_forever(HTTP_QUEUE, run_http_check, concurrency=get_settings().http_concurrency)

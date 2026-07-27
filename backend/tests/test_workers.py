@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.core.config import get_settings
 from app.core.database import Base
@@ -44,7 +45,9 @@ async def test_browser_worker_adapter_mocked():
 
 @pytest.fixture()
 def worker_session_factory(monkeypatch):
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
     Base.metadata.create_all(bind=engine)
     monkeypatch.setattr("app.workers.base.SessionLocal", TestingSessionLocal)
