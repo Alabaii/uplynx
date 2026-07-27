@@ -4,7 +4,8 @@ import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 
-import pika
+import aio_pika
+from aiormq.exceptions import AMQPError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -24,7 +25,7 @@ from app.services.alerting import (
 )
 from app.services.email import email_enabled, send_email
 from app.services.incidents import update_incident_for_status_change
-from app.services.queue import declare_check_queue, deserialize_task
+from app.services.queue import declare_check_queue_async, deserialize_task
 from app.services.telegram import send_telegram_message
 from app.services.webpush import PushSubscriptionGone, push_enabled, send_web_push
 
@@ -97,7 +98,12 @@ async def broadcast_alert(monitor: Monitor, scope: str, text: str) -> None:
         await send_telegram_alert(monitor, scope, text)
     except Exception:  # noqa: BLE001 — push отправляется независимо от Telegram
         logger.exception("failed to send Telegram alert for monitor %s", monitor.id)
-    send_push_alerts(monitor, scope, text)
+    try:
+        # синхронная целиком (БД + pywebpush) — в отдельный поток, иначе рассылка
+        # останавливает проверки, которые воркер выполняет параллельно
+        await asyncio.to_thread(send_push_alerts, monitor, scope, text)
+    except Exception:  # noqa: BLE001 — email отправляется независимо от push
+        logger.exception("failed to send push alerts for monitor %s", monitor.id)
     try:
         await send_email_alerts(monitor, scope, text)
     except Exception:  # noqa: BLE001 — email не должен ломать persist_result
@@ -165,13 +171,21 @@ def resolve_effective_status(db: Session, monitor: Monitor, raw_status: str) -> 
     return raw_status
 
 
-async def persist_result(task: CheckTask, result: dict) -> None:
+def store_result(task: CheckTask, result: dict) -> tuple[Monitor, CheckResult, str, str | None, str | None] | None:
+    """Синхронная часть persist_result: запись результата, статус, инцидент.
+
+    Выделена, чтобы вызываться в отдельном потоке: запросы SQLAlchemy синхронные,
+    а воркер обрабатывает проверки конкурентно — в event loop они останавливали бы
+    все остальные проверки на время каждого обращения к БД.
+
+    None — результат уже записан (идемпотентность по task_id) или монитор удалён.
+    """
     with SessionLocal() as db:
         if db.scalar(select(CheckResult).where(CheckResult.task_id == task.task_id)):
-            return
+            return None
         monitor = db.get(Monitor, task.monitor_id)
         if not monitor:
-            return
+            return None
         previous_status = monitor.status
         check_result = CheckResult(
             monitor_id=monitor.id,
@@ -205,6 +219,16 @@ async def persist_result(task: CheckTask, result: dict) -> None:
                 error = result.get("error") or incident.trigger_error
                 renotify_text = build_renotify_text(monitor, monitor.status, error, minutes_down)
         db.commit()
+    # сессия закрыта, но SessionLocal создан с expire_on_commit=False — атрибуты
+    # monitor/check_result остаются доступны для рассылки алертов
+    return monitor, check_result, previous_status, ssl_alert_text, renotify_text
+
+
+async def persist_result(task: CheckTask, result: dict) -> None:
+    stored = await asyncio.to_thread(store_result, task, result)
+    if stored is None:
+        return
+    monitor, check_result, previous_status, ssl_alert_text, renotify_text = stored
     if ssl_alert_text:
         try:
             await broadcast_alert(monitor, "ssl", ssl_alert_text)
@@ -223,13 +247,13 @@ async def persist_result(task: CheckTask, result: dict) -> None:
         logger.exception("failed to send alert for monitor %s", monitor.id)
 
 
-def process_message(queue: str, runner: ResultRunner, body: bytes) -> bool:
+async def handle_message(queue: str, runner: ResultRunner, body: bytes) -> bool:
     """Обрабатывает одно сообщение очереди; False — сбой, сообщение уйдёт в DLQ."""
     started = time.perf_counter()
     try:
         task = deserialize_task(body)
-        result = asyncio.run(runner(task))
-        asyncio.run(persist_result(task, result))
+        result = await runner(task)
+        await persist_result(task, result)
     except Exception:  # noqa: BLE001
         logger.exception("failed to process message from queue %s", queue)
         CHECKS_PROCESSED.labels(queue=queue, result="error").inc()
@@ -240,25 +264,48 @@ def process_message(queue: str, runner: ResultRunner, body: bytes) -> bool:
     return True
 
 
-def consume_forever(queue: str, runner: ResultRunner, reconnect_delay: float = 5.0) -> None:
-    params = pika.URLParameters(get_settings().rabbitmq_url)
+def process_message(queue: str, runner: ResultRunner, body: bytes) -> bool:
+    """Синхронная обёртка handle_message — для вызова вне event loop."""
+    return asyncio.run(handle_message(queue, runner, body))
 
-    def callback(ch, method, _properties, body):  # type: ignore[no-untyped-def]
-        if process_message(queue, runner, body):
-            ch.basic_ack(delivery_tag=method.delivery_tag)
-        else:
-            # requeue=False + dead-letter на очереди → сообщение уходит в DLQ
-            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
 
+async def consume_queue(queue: str, runner: ResultRunner, concurrency: int) -> None:
+    """Потребляет очередь, обрабатывая до concurrency проверок одновременно.
+
+    Раньше воркер держал pika.BlockingConnection с prefetch_count=1 и выполнял
+    проверки строго последовательно: один недоступный адрес занимал воркер на
+    весь check_timeout_seconds, и в это время не проверялся НИ ОДИН монитор —
+    ни у этой организации, ни у остальных. Теперь prefetch равен допустимой
+    конкурентности, а aio-pika доставляет каждое сообщение в отдельной задаче:
+    медленная проверка ждёт сеть, не мешая соседним.
+
+    connect_robust сам переподключается после разрыва — внешний цикл нужен
+    только для сбоя самого подключения (брокер ещё не поднялся).
+    """
+    connection = await aio_pika.connect_robust(get_settings().rabbitmq_url)
+    async with connection:
+        channel = await connection.channel()
+        # prefetch — единственный ограничитель конкурентности: сколько сообщений
+        # брокер отдаёт до подтверждения, столько проверок и идёт параллельно
+        await channel.set_qos(prefetch_count=concurrency)
+        declared = await declare_check_queue_async(channel, queue)
+
+        async def on_message(message: aio_pika.abc.AbstractIncomingMessage) -> None:
+            if await handle_message(queue, runner, message.body):
+                await message.ack()
+            else:
+                # requeue=False + dead-letter на очереди → сообщение уходит в DLQ
+                await message.nack(requeue=False)
+
+        await declared.consume(on_message)
+        logger.info("consuming queue %s (concurrency %s)", queue, concurrency)
+        await asyncio.Future()  # держим потребление до остановки процесса
+
+
+def consume_forever(queue: str, runner: ResultRunner, concurrency: int = 1, reconnect_delay: float = 5.0) -> None:
     while True:
         try:
-            connection = pika.BlockingConnection(params)
-            channel = connection.channel()
-            declare_check_queue(channel, queue)
-            channel.basic_qos(prefetch_count=1)
-            channel.basic_consume(queue=queue, on_message_callback=callback)
-            logger.info("consuming queue %s", queue)
-            channel.start_consuming()
-        except pika.exceptions.AMQPError:
+            asyncio.run(consume_queue(queue, runner, concurrency))
+        except AMQPError:
             logger.exception("lost connection to RabbitMQ, retrying in %ss", reconnect_delay)
             time.sleep(reconnect_delay)

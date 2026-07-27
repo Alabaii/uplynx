@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base
 from app.models import AuditLog, MaintenanceWindow, Monitor, Organization, User
@@ -31,7 +32,9 @@ def window_payload(minutes_from_now=-5, duration_minutes=60, monitor_id=None, no
 
 @pytest.fixture()
 def worker_session_factory(monkeypatch):
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
     Base.metadata.create_all(bind=engine)
     monkeypatch.setattr("app.workers.scheduler.SessionLocal", TestingSessionLocal)
