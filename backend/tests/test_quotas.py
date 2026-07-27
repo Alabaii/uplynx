@@ -149,3 +149,64 @@ def test_team_mode_ignores_org_quotas(client, monkeypatch):
     # квоту можно записать, но в team-режиме действуют только глобальные env-лимиты
     assert client.patch("/api/v1/orgs/current", json={"quota_monitors": 0}, headers=owner).status_code == 200
     assert client.post("/api/v1/monitors", json=MONITOR_PAYLOAD, headers=owner).status_code == 201
+
+
+# --- потолки длины полей монитора ------------------------------------------------------------------
+
+
+def test_too_long_url_is_rejected_with_422(client, auth_headers):
+    """URL длиннее колонки monitors.url раньше доходил до БД и падал 500-й ошибкой."""
+    from app.schemas import MAX_MONITOR_URL_LENGTH
+
+    long_url = "https://example.com/" + "a" * MAX_MONITOR_URL_LENGTH
+    response = client.post(
+        "/api/v1/monitors",
+        headers=auth_headers,
+        json={"id": "long-url", "name": "Long", "type": "http", "url": long_url, "interval": 300},
+    )
+    assert response.status_code == 422
+
+
+def test_too_long_name_is_rejected_with_422(client, auth_headers):
+    from app.schemas import MAX_MONITOR_NAME_LENGTH
+
+    response = client.post(
+        "/api/v1/monitors",
+        headers=auth_headers,
+        json={
+            "id": "long-name",
+            "name": "n" * (MAX_MONITOR_NAME_LENGTH + 1),
+            "type": "http",
+            "url": "https://example.com",
+            "interval": 300,
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_too_long_url_in_config_upload_is_rejected(client, auth_headers):
+    from app.schemas import MAX_MONITOR_URL_LENGTH
+
+    content = (
+        "version: 1\nmonitors:\n"
+        "  - id: from-config\n    type: http\n    interval: 300\n"
+        f"    url: https://example.com/{'a' * MAX_MONITOR_URL_LENGTH}\n"
+    )
+    response = client.post("/api/v1/config", headers=auth_headers, json={"content": content, "format": "yaml"})
+    assert response.status_code == 400
+
+
+def test_update_rejects_too_long_url(client, auth_headers):
+    from app.schemas import MAX_MONITOR_URL_LENGTH
+
+    client.post(
+        "/api/v1/monitors",
+        headers=auth_headers,
+        json={"id": "to-update", "name": "Ok", "type": "http", "url": "https://example.com", "interval": 300},
+    )
+    response = client.put(
+        "/api/v1/monitors/to-update",
+        headers=auth_headers,
+        json={"url": "https://example.com/" + "a" * MAX_MONITOR_URL_LENGTH},
+    )
+    assert response.status_code == 422
