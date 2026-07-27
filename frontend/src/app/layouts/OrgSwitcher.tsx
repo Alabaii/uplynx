@@ -3,7 +3,7 @@ import { Check, ChevronsUpDown, Plus } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { ApiError, createOrg, listOrgs, switchOrg, type Org } from '../api';
-import { createSession, getSessionEmail } from '../auth';
+import { getSessionEmail, startSession } from '../auth';
 import { useTexts } from '../i18n';
 import { cn } from '../utils/cn';
 
@@ -19,7 +19,7 @@ function slugify(value: string) {
 
 async function switchAndReload(orgId: number) {
   const token = await switchOrg(orgId);
-  createSession(token.access_token, getSessionEmail() ?? undefined);
+  startSession(token.access_token, getSessionEmail() ?? undefined);
   window.location.assign('/');
 }
 
