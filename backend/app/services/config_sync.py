@@ -12,6 +12,7 @@ from app.core.config import get_settings
 from app.core.ssrf import BlockedTargetError, validate_public_url
 from app.models import ConfigVersion, Monitor, Organization, User
 from app.schemas import ConfigDocument, ConfigMonitor, MonitorCreate, MonitorUpdate
+from app.services.incidents import resolve_open_incident
 from app.services.plans import (
     count_enabled_monitors,
     enforce_plan_monitor_limits,
@@ -198,6 +199,8 @@ def resync_monitors(db: Session, user: User, org: Organization, document: Config
             monitor.enabled = cfg.enabled
             monitor.status = monitor.status if cfg.enabled else "paused"
             monitor.next_run_at = now if cfg.enabled else None
+            if not cfg.enabled:
+                resolve_open_incident(db, monitor.id)
         else:
             db.add(
                 Monitor(
@@ -220,6 +223,9 @@ def resync_monitors(db: Session, user: User, org: Organization, document: Config
             monitor.enabled = False
             monitor.status = "paused"
             monitor.next_run_at = None
+            # выключённый монитор больше не проверяется: открытый инцидент
+            # некому закрыть, а он остаётся в списке и в метриках платформы
+            resolve_open_incident(db, monitor.id)
 
 
 def upload_config(db: Session, user: User, org: Organization, content: str, fmt: str) -> ConfigVersion:
@@ -347,6 +353,8 @@ def update_monitor_from_payload(db: Session, user: User, org: Organization, moni
     if not monitor.enabled:
         monitor.status = "paused"
         monitor.next_run_at = None
+        # пауза останавливает проверки — открытый инцидент иначе висит вечно
+        resolve_open_incident(db, monitor.id)
     db.flush()
     persist_monitors_as_config(db, user, org)
     db.refresh(monitor)

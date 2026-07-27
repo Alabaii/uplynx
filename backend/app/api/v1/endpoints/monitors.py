@@ -21,6 +21,7 @@ from app.schemas import (
 )
 from app.services.audit import record
 from app.services.config_sync import create_monitor_from_payload, persist_monitors_as_config, update_monitor_from_payload
+from app.services.incidents import resolve_open_incident
 from app.services.plans import get_org_plan, min_interval_for, plan_gating_active
 from app.services.queue import RabbitPublisher, ssl_refresh_due, task_for_monitor
 from app.services.uptime import collect_uptime_stats
@@ -261,6 +262,8 @@ def delete_monitor(
     monitor.enabled = False
     monitor.status = "paused"
     monitor.next_run_at = None
+    # проверок больше не будет — закрыть инцидент больше некому
+    resolve_open_incident(db, monitor.id)
     # сессия с autoflush=False: без flush снимок конфига ниже увидит монитор живым
     db.flush()
     record(
