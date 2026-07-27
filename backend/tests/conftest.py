@@ -8,6 +8,7 @@ from app.api.deps import get_current_user
 from app.core.database import Base, get_db
 from app.core.ratelimit import (
     get_forgot_password_limiter,
+    get_login_ip_limiter,
     get_login_limiter,
     get_mutation_limiter,
     get_register_limiter,
@@ -29,12 +30,14 @@ def reset_status_page_cache():
 def reset_rate_limiters():
     # лимитеры живут в памяти процесса — между тестами их состояние сбрасывается
     get_login_limiter.cache_clear()
+    get_login_ip_limiter.cache_clear()
     get_register_limiter.cache_clear()
     get_forgot_password_limiter.cache_clear()
     get_verify_email_limiter.cache_clear()
     get_mutation_limiter.cache_clear()
     yield
     get_login_limiter.cache_clear()
+    get_login_ip_limiter.cache_clear()
     get_register_limiter.cache_clear()
     get_forgot_password_limiter.cache_clear()
     get_verify_email_limiter.cache_clear()

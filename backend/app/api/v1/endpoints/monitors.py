@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import OrgContext, get_current_org_member, require_role
 from app.core.config import get_settings
 from app.core.database import get_db
+from app.core.ratelimit import DatabaseRateLimiter
 from app.models import CheckResult, MaintenanceWindow, Monitor, Organization
 from app.schemas import (
     CheckNowRead,
@@ -20,6 +21,7 @@ from app.schemas import (
 )
 from app.services.audit import record
 from app.services.config_sync import create_monitor_from_payload, persist_monitors_as_config, update_monitor_from_payload
+from app.services.plans import get_org_plan, min_interval_for, plan_gating_active
 from app.services.queue import RabbitPublisher, ssl_refresh_due, task_for_monitor
 from app.services.uptime import collect_uptime_stats
 
@@ -69,6 +71,33 @@ def active_maintenance_monitor_ids(db: Session, org_id: int, now: datetime) -> s
                 MaintenanceWindow.ends_at > now,
             )
         ).all()
+    )
+
+
+def enforce_manual_check_interval(db: Session, org: Organization, monitor: Monitor) -> None:
+    """Ручная проверка подчиняется минимальному интервалу тарифа.
+
+    Кнопка «проверить сейчас» публикует ту же задачу, что шедулер, только мимо
+    расписания — и без этого лимита частоту обращений к цели задавал не тариф,
+    а общий потолок мутаций (60 в минуту). Для browser-проверок это к тому же
+    занимало оба слота единственного воркера в ущерб остальным организациям.
+
+    В team-режиме тарифы декоративны (инсталляция обслуживает одну команду),
+    поэтому ограничение действует только в enterprise.
+    """
+    if not plan_gating_active():
+        return
+    plan = get_org_plan(db, org)
+    minimum = min_interval_for(plan, monitor.type)
+    # окно = минимум плана, одна попытка: счётчик общий для реплик, как у входа
+    limiter = DatabaseRateLimiter("check_now", max_attempts=1, window_seconds=minimum)
+    retry_after = limiter.hit(f"{org.id}:{monitor.id}")
+    if retry_after is None:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail=f"Plan '{plan.name}' allows one manual {monitor.type} check every {minimum} seconds",
+        headers={"Retry-After": str(int(retry_after) + 1)},
     )
 
 
@@ -187,6 +216,7 @@ def check_monitor_now(
     if None in in_maintenance_ids or monitor.id in in_maintenance_ids:
         # внеплановая проверка в окне обслуживания портила бы статистику и будила алерты
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Monitor is in maintenance")
+    enforce_manual_check_interval(db, ctx.org, monitor)
     now = datetime.now(timezone.utc)
     collect_ssl = ssl_refresh_due(monitor, now)
     if collect_ssl:

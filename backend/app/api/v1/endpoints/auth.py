@@ -11,6 +11,7 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.ratelimit import (
     get_forgot_password_limiter,
+    get_login_ip_limiter,
     get_login_limiter,
     get_register_limiter,
     get_verify_email_limiter,
@@ -179,7 +180,15 @@ def register(payload: UserCreate, request: Request, db: Session = Depends(get_db
 @router.post("/login", response_model=Token)
 def login(payload: UserLogin, request: Request, db: Session = Depends(get_db)) -> Token:
     limiter = get_login_limiter()
-    limiter_key = f"login:{client_ip(request)}:{payload.email.lower()}"
+    ip_limiter = get_login_ip_limiter()
+    address = client_ip(request)
+    # ключ ip+email ловит подбор пароля к одному аккаунту, но перебор одного
+    # пароля по списку адресатов раскладывался по разным ключам и не упирался
+    # ни во что: каждый email давал свои пять попыток. Широкий лимит на адрес
+    # проверяется первым — заблокированный источник не тратит попытки аккаунта
+    ip_key = f"login-ip:{address}"
+    limiter_key = f"login:{address}:{payload.email.lower()}"
+    enforce_rate_limit(ip_limiter, ip_key)
     enforce_rate_limit(limiter, limiter_key)
     user = db.scalar(select(User).where(User.email == payload.email.lower()))
     if not user or not verify_password(payload.password, user.hashed_password):
@@ -189,8 +198,10 @@ def login(payload: UserLogin, request: Request, db: Session = Depends(get_db)) -
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Email not verified. Check your inbox for the verification link.",
         )
-    # успешный вход сбрасывает счётчик неудачных попыток
+    # успешный вход сбрасывает счётчики неудачных попыток — обоих ключей,
+    # иначе один забывчивый пользователь запирал бы вход всему офису за NAT
     limiter.reset(limiter_key)
+    ip_limiter.reset(ip_key)
     # активная организация = единственное/первое членство
     org_id = db.scalar(
         select(OrgMember.org_id).where(OrgMember.user_id == user.id).order_by(OrgMember.id).limit(1)
