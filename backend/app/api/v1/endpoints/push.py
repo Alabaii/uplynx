@@ -45,11 +45,18 @@ def subscribe(
     if not push_enabled():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Push notifications are disabled")
     validate_push_endpoint(payload.endpoint)
-    # endpoint уникален глобально: повторная подписка обновляет владельца и ключи
-    subscription = db.scalar(select(PushSubscription).where(PushSubscription.endpoint == payload.endpoint))
+    # подписка принадлежит организации: повторная подписка того же устройства
+    # обновляет ключи и владельца ВНУТРИ воркспейса, а в другом воркспейсе
+    # заводит свою — уведомления адресуются по org_id, и участник двух
+    # организаций должен получать алерты обеих
+    subscription = db.scalar(
+        select(PushSubscription).where(
+            PushSubscription.endpoint == payload.endpoint,
+            PushSubscription.org_id == ctx.org.id,
+        )
+    )
     if subscription:
         subscription.user_id = ctx.user.id
-        subscription.org_id = ctx.org.id
         subscription.p256dh = payload.keys.p256dh
         subscription.auth = payload.keys.auth
     else:
@@ -75,6 +82,7 @@ def unsubscribe(
         select(PushSubscription).where(
             PushSubscription.endpoint == payload.endpoint,
             PushSubscription.user_id == ctx.user.id,
+            PushSubscription.org_id == ctx.org.id,
         )
     )
     if subscription:
