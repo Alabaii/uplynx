@@ -240,8 +240,18 @@ class PlaywrightBrowserRunner:
                 try:
                     page = await browser.new_page()
                     page.set_default_timeout(task.timeout_seconds * 1000)
+                    budget = get_settings().browser_scenario_timeout_seconds
                     try:
-                        await execute_steps(page, steps, secrets)
+                        # дедлайн на сценарий целиком: set_default_timeout ограничивает
+                        # только отдельный шаг, а их в сценарии до MAX_SCENARIO_STEPS
+                        await asyncio.wait_for(execute_steps(page, steps, secrets), timeout=budget)
+                    except asyncio.TimeoutError:
+                        return {
+                            "status": "down",
+                            "response_time_ms": None,
+                            "error": f"scenario exceeded the {budget}s budget",
+                            "details": {"steps": len(steps), "scenario_timeout_seconds": budget},
+                        }
                     except StepFailure as failure:
                         return {
                             "status": "down",

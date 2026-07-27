@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     # heartbeat шедулера старше этого — /health/scheduler отдаёт 503 (liveness)
     scheduler_heartbeat_stale_seconds: int = 30
     check_timeout_seconds: int = 30
+    # предел на browser-сценарий ЦЕЛИКОМ: check_timeout_seconds ограничивает
+    # отдельный шаг, поэтому длинный сценарий (или шаги, каждый из которых почти
+    # укладывается в свой таймаут) держал бы воркер сколько угодно долго
+    browser_scenario_timeout_seconds: int = Field(default=120, ge=10)
     # Sentry: пустой DSN — отключён (dev/self-hosted работают без него)
     sentry_dsn: str | None = None
     sentry_traces_sample_rate: float = 0.0

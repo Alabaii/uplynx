@@ -291,3 +291,107 @@ def test_monitor_api_round_trip_stores_new_steps_in_config(client, auth_headers)
     assert stored[1] == {"action": "wait_for", "selector": "#username"}
     assert stored[2] == {"action": "assert_url", "contains": "/dashboard"}
     assert stored[3] == {"action": "assert_text", "selector": "h1", "text": "Welcome"}
+
+
+# --- потолки сценария ------------------------------------------------------------------------------
+
+
+def test_scenario_step_limit_rejected(client, auth_headers):
+    """Сценарий длиннее MAX_SCENARIO_STEPS отклоняется: таймаут Playwright — на шаг,
+    поэтому без предела длины один монитор занимал бы браузерный воркер часами."""
+    from app.schemas import MAX_SCENARIO_STEPS
+
+    steps = [{"action": "assert_text", "text": "ok"}] * (MAX_SCENARIO_STEPS + 1)
+    response = client.post(
+        "/api/v1/monitors",
+        headers=auth_headers,
+        json={"id": "too-long", "name": "Too long", "type": "browser", "interval": 300, "steps": steps},
+    )
+    assert response.status_code == 422
+
+    steps = steps[:MAX_SCENARIO_STEPS]
+    response = client.post(
+        "/api/v1/monitors",
+        headers=auth_headers,
+        json={"id": "at-limit", "name": "At limit", "type": "browser", "interval": 300, "steps": steps},
+    )
+    assert response.status_code == 201
+
+
+def test_scenario_step_field_length_rejected(client, auth_headers):
+    response = client.post(
+        "/api/v1/monitors",
+        headers=auth_headers,
+        json={
+            "id": "long-selector",
+            "name": "Long selector",
+            "type": "browser",
+            "interval": 300,
+            "steps": [{"action": "click", "selector": "a" * 501}],
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_scenario_budget_stops_a_hanging_scenario(monkeypatch):
+    """Сценарий, который висит дольше бюджета, отдаёт down, а не держит воркер."""
+    import asyncio
+
+    from app.schemas import CheckTask
+    from app.services.checks import PlaywrightBrowserRunner
+
+    # checks.py импортирует get_settings по имени — патчим ссылку в самом модуле
+    monkeypatch.setattr("app.services.checks.get_settings", lambda: _settings_with_budget())
+
+    class HangingPage:
+        url = "https://example.com"
+
+        def set_default_timeout(self, _ms):
+            return None
+
+        async def goto(self, _url):
+            await asyncio.sleep(60)  # шаг, который никогда не завершится
+
+    class HangingBrowser:
+        async def new_page(self):
+            return HangingPage()
+
+        async def close(self):
+            return None
+
+    class HangingChromium:
+        async def launch(self, headless=True):
+            return HangingBrowser()
+
+    class HangingPlaywright:
+        chromium = HangingChromium()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr("playwright.async_api.async_playwright", lambda: HangingPlaywright())
+
+    task = CheckTask(
+        task_id="hang",
+        monitor_id=1,
+        type="browser",
+        config={"steps": [{"action": "goto", "url": "https://example.com"}]},
+        timeout_seconds=30,
+        created_at="2026-01-01T00:00:00Z",
+        attempt=1,
+    )
+    result = asyncio.run(PlaywrightBrowserRunner().run(task, {}))
+    assert result["status"] == "down"
+    assert "budget" in result["error"]
+    assert result["details"]["scenario_timeout_seconds"] == 1
+
+
+def _settings_with_budget(budget: int = 1):
+    from app.core.config import Settings
+
+    settings = Settings()
+    object.__setattr__(settings, "browser_scenario_timeout_seconds", budget)
+    return settings
