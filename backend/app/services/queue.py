@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pika
@@ -14,6 +14,9 @@ HTTP_QUEUE = "http_checks.v2"
 BROWSER_QUEUE = "browser_checks.v2"
 DLX_EXCHANGE = "checks.dlx"
 DEAD_LETTER_QUEUES = {HTTP_QUEUE: "http_checks.dlq", BROWSER_QUEUE: "browser_checks.dlq"}
+
+# как часто перепроверять срок TLS-сертификата (см. ssl_refresh_due)
+SSL_REFRESH_INTERVAL = timedelta(hours=24)
 
 
 def queue_for_type(monitor_type: str) -> str:
@@ -62,7 +65,26 @@ async def declare_check_queue_async(channel, queue: str):  # type: ignore[no-unt
     )
 
 
-def task_for_monitor(monitor: Monitor, timeout_seconds: int = 30) -> CheckTask:
+def ssl_refresh_due(monitor: Monitor, now: datetime) -> bool:
+    """Пора ли снимать срок TLS-сертификата этой проверкой.
+
+    Снятие — отдельное соединение с резолвом и полным хендшейком, а notAfter
+    меняется раз в несколько месяцев: делать это на каждой проверке значит
+    удваивать нагрузку на цель ради значения, которое почти всегда прежнее.
+    Суток достаточно — пороги алертов измеряются в днях.
+    """
+    if monitor.type != "http" or not (monitor.url or "").lower().startswith("https://"):
+        return False
+    if monitor.ssl_checked_at is None:
+        return True
+    # sqlite отдаёт naive datetime, postgres — aware
+    checked_at = monitor.ssl_checked_at
+    if checked_at.tzinfo is None:
+        checked_at = checked_at.replace(tzinfo=timezone.utc)
+    return now - checked_at >= SSL_REFRESH_INTERVAL
+
+
+def task_for_monitor(monitor: Monitor, timeout_seconds: int = 30, collect_ssl: bool = False) -> CheckTask:
     return CheckTask(
         task_id=str(uuid4()),
         monitor_id=monitor.id,
@@ -73,6 +95,7 @@ def task_for_monitor(monitor: Monitor, timeout_seconds: int = 30) -> CheckTask:
         timeout_seconds=timeout_seconds,
         created_at=datetime.now(timezone.utc),
         attempt=1,
+        collect_ssl=collect_ssl,
     )
 
 

@@ -22,7 +22,7 @@ from app.schemas import (
 from app.services.audit import record
 from app.services.config_sync import create_monitor_from_payload, persist_monitors_as_config, update_monitor_from_payload
 from app.services.plans import get_org_plan, min_interval_for, plan_gating_active
-from app.services.queue import RabbitPublisher, task_for_monitor
+from app.services.queue import RabbitPublisher, ssl_refresh_due, task_for_monitor
 from app.services.uptime import collect_uptime_stats
 
 router = APIRouter()
@@ -217,7 +217,13 @@ def check_monitor_now(
         # внеплановая проверка в окне обслуживания портила бы статистику и будила алерты
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Monitor is in maintenance")
     enforce_manual_check_interval(db, ctx.org, monitor)
-    task = task_for_monitor(monitor, timeout_seconds=get_settings().check_timeout_seconds)
+    now = datetime.now(timezone.utc)
+    collect_ssl = ssl_refresh_due(monitor, now)
+    if collect_ssl:
+        monitor.ssl_checked_at = now
+    task = task_for_monitor(
+        monitor, timeout_seconds=get_settings().check_timeout_seconds, collect_ssl=collect_ssl
+    )
     try:
         publisher.publish(task)
     except pika.exceptions.AMQPError as exc:

@@ -167,6 +167,10 @@ class Monitor(Base):
     ssl_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # самый острый порог (в днях), по которому уже отправлен ssl-алерт; NULL — не алертили
     ssl_alerted_days: Mapped[int | None] = mapped_column(Integer)
+    # когда сертификат снимали в последний раз; NULL — ещё ни разу. Срок действия
+    # меняется раз в несколько месяцев, а снятие стоит отдельного соединения с
+    # полным TLS-хендшейком, поэтому оно идёт не на каждой проверке
+    ssl_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # архивация: монитор исчезает из продукта и освобождает слаг, но строка и
     # история проверок остаются в БД (восстановимо, не рвёт внешние ключи)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
