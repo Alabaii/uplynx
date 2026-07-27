@@ -93,6 +93,14 @@ def get_login_limiter() -> DatabaseRateLimiter:
 
 
 @lru_cache
+def get_login_ip_limiter() -> DatabaseRateLimiter:
+    settings = get_settings()
+    return DatabaseRateLimiter(
+        "login_ip", settings.login_ip_rate_limit_attempts, settings.login_ip_rate_limit_window_seconds
+    )
+
+
+@lru_cache
 def get_register_limiter() -> DatabaseRateLimiter:
     settings = get_settings()
     return DatabaseRateLimiter(
