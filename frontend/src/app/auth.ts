@@ -74,6 +74,22 @@ export function clearSession() {
 // офлайн-кэш API живёт в service worker: токены убрали, а ответы с данными
 // организации остались бы на устройстве до следующего входа
 function clearOfflineApiCache() {
+  // Сообщение доходит только когда страницей управляет активный worker. После
+  // hard-reload и на первой загрузке (до clients.claim) controller === null, и
+  // логаут молча не чистил НИЧЕГО: следующий вошедший на общем устройстве,
+  // оказавшись офлайн, получал из кэша чужие мониторы, инциденты и аудит.
+  // Caches доступен и самой странице — чистим напрямую, не полагаясь на worker.
+  if ('caches' in window) {
+    caches
+      .keys()
+      .then((names) =>
+        Promise.all(names.filter((name) => name.startsWith('uplynx-api')).map((name) => caches.delete(name))),
+      )
+      .catch(() => {
+        // приватный режим и запрет storage — чистить нечего
+      });
+  }
+
   if (!('serviceWorker' in navigator)) {
     return;
   }
