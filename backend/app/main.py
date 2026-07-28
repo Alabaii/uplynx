@@ -60,7 +60,12 @@ async def mutation_rate_limit(request: Request, call_next):  # type: ignore[no-u
     аутентификация остаётся за зависимостями эндпоинтов); без токена — IP:
     неавторизованные мутации всё равно упрутся в 401, но и им не даём молотить.
     """
-    path = request.url.path
+    # scope["path"], а не request.url.path: последний пересобирается склейкой
+    # "{scheme}://{host}{path}" и заново парсится, поэтому путь, не начинающийся
+    # с "/" (например "@example.com"), сдвигает границу authority — .path
+    # расходится с настоящим путём запроса, и лимитер молча пропускает мутацию.
+    # Маршрутизация идёт по scope["path"], решение о лимите должно идти по нему же
+    path = request.scope.get("path", "")
     if request.method in MUTATING_METHODS and path.startswith("/api/v1") and not path.startswith("/api/v1/auth"):
         auth_header = request.headers.get("authorization") or ""
         token = auth_header.removeprefix("Bearer ").strip()

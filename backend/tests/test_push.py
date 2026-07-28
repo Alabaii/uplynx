@@ -129,3 +129,80 @@ def test_subscription_belongs_to_organization_not_device(client, db_session_fact
     with db_session_factory() as db:
         remaining = db.scalars(select(PushSubscription)).all()
         assert [row.org_id for row in remaining] == [first_org]
+
+
+# --- пиннинг адреса при отправке (DNS rebinding) ------------------------------------------------
+
+
+def _subscription(endpoint="https://push.example.com/abc"):
+    return PushSubscription(org_id=1, user_id=1, endpoint=endpoint, p256dh="k", auth="a")
+
+
+def test_send_web_push_pins_connection_to_verified_address(monkeypatch):
+    """Соединение идёт на проверенный адрес, а не на тот, что отдаст DNS второй раз."""
+    from app.services import webpush
+
+    monkeypatch.setattr(webpush, "resolve_public_address", lambda *a, **kw: "93.184.216.34")
+
+    captured = {}
+
+    def fake_webpush(**kwargs):
+        captured.update(kwargs)
+        return None
+
+    monkeypatch.setattr(webpush, "webpush", fake_webpush)
+    assert webpush.send_web_push(_subscription(), "t", "b") is True
+
+    session = captured["requests_session"]
+    assert session is not None
+    # адаптер https подменён на пиннингованный, адрес зашит в замыкание
+    adapter = session.get_adapter("https://push.example.com/abc")
+    pool_classes = adapter.poolmanager.pool_classes_by_scheme
+    connection_cls = pool_classes["https"].ConnectionCls
+    assert connection_cls.__name__ == "_PinnedConnection"
+
+
+def test_send_web_push_refuses_endpoint_that_became_internal(monkeypatch):
+    """Если имя стало резолвиться во внутренний адрес — отправки не происходит вовсе."""
+    from app.core.ssrf import BlockedTargetError
+    from app.services import webpush
+
+    def blocked(*_args, **_kwargs):
+        raise BlockedTargetError("target resolves to non-public address 169.254.169.254")
+
+    monkeypatch.setattr(webpush, "resolve_public_address", blocked)
+
+    called = []
+    monkeypatch.setattr(webpush, "webpush", lambda **kw: called.append(kw))
+
+    assert webpush.send_web_push(_subscription(), "t", "b") is False
+    assert called == []
+
+
+def test_send_web_push_skips_pinning_on_prem(monkeypatch):
+    """allow_private_targets: resolve_public_address отдаёт None — пиннинг не нужен."""
+    from app.services import webpush
+
+    monkeypatch.setattr(webpush, "resolve_public_address", lambda *a, **kw: None)
+
+    captured = {}
+    monkeypatch.setattr(webpush, "webpush", lambda **kw: captured.update(kw))
+
+    assert webpush.send_web_push(_subscription("https://internal.lan/p"), "t", "b") is True
+    assert captured["requests_session"] is None
+
+
+def test_pinned_session_ignores_environment_proxy(monkeypatch):
+    """С HTTPS_PROXY в окружении requests пошёл бы в прокси, а имя резолвил бы он.
+
+    Тогда проверенный адрес перестаёт что-либо значить и окно rebinding
+    открывается заново — поэтому пиннингованная сессия ходит напрямую.
+    """
+    from app.services.webpush import pinned_session
+
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:9")
+    session = pinned_session("93.184.216.34")
+
+    assert session.trust_env is False
+    # именно trust_env отвечает за подхват прокси из окружения при отправке
+    assert session.rebuild_proxies(type("R", (), {"url": "https://push.example.com/x", "headers": {}})(), {}) == {}

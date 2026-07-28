@@ -141,6 +141,28 @@ async def fetch_following_redirects(
 
 
 async def run_http_check(task: CheckTask) -> dict[str, Any]:
+    """HTTP-проверка с потолком на время ЦЕЛИКОМ (см. http_check_budget_seconds).
+
+    Таймаут httpx применяется к отдельной операции, а не к запросу целиком, и
+    цепочка редиректов получает его заново на каждом хопе — без этого дедлайна
+    медленная цель занимает слот воркера неограниченно долго. Симметрично
+    бюджету browser-сценария.
+    """
+    budget = get_settings().http_check_budget_seconds
+    try:
+        return await asyncio.wait_for(_perform_http_check(task), timeout=budget)
+    except asyncio.TimeoutError:
+        # to_thread-операции внутри (резолв, снятие сертификата) отменой не
+        # прерываются, но обе ограничены своими таймаутами и завершатся сами
+        return {
+            "status": "down",
+            "response_time_ms": None,
+            "error": f"check exceeded the {budget}s budget",
+            "details": {"check_budget_seconds": budget},
+        }
+
+
+async def _perform_http_check(task: CheckTask) -> dict[str, Any]:
     if not task.url:
         return {"status": "down", "response_time_ms": None, "error": "missing url", "details": {}}
     expected = task.config.get("expected") or {}
