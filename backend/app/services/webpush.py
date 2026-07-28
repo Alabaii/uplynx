@@ -74,6 +74,12 @@ def push_enabled() -> bool:
 
 def send_web_push(subscription: PushSubscription, title: str, body: str, url: str = "/") -> bool:
     settings = get_settings()
+    if not settings.allow_private_targets and not subscription.endpoint.lower().startswith("https://"):
+        # Пиннинг стоит на https-адаптере: по http requests пошёл бы дефолтным,
+        # с повторным резолвом имени. Подписка на http отвергается при создании,
+        # эта проверка прикрывает строки, заведённые до неё
+        logger.warning("refusing to send push over non-https endpoint")
+        return False
     try:
         # адрес проверен при подписке, но DNS мог смениться с тех пор — воркер
         # перепроверяет его перед каждой отправкой, как и цели мониторов, и

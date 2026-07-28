@@ -206,3 +206,29 @@ def test_pinned_session_ignores_environment_proxy(monkeypatch):
     assert session.trust_env is False
     # именно trust_env отвечает за подхват прокси из окружения при отправке
     assert session.rebuild_proxies(type("R", (), {"url": "https://push.example.com/x", "headers": {}})(), {}) == {}
+
+
+def test_subscribe_rejects_http_endpoint(client, auth_headers, monkeypatch):
+    """http-подписка ушла бы мимо пиннинга: он навешен на https-адаптер."""
+    enable_push(monkeypatch)
+    response = client.post(
+        "/api/v1/push/subscribe",
+        json={"endpoint": "http://push.example.com/abc", "keys": {"p256dh": "k", "auth": "a"}},
+        headers=auth_headers,
+    )
+    assert response.status_code == 400
+    assert "https" in response.json()["detail"].lower()
+
+
+def test_send_web_push_refuses_non_https_row(monkeypatch):
+    """Строка с http, заведённая до запрета, тоже не отправляется без пиннинга."""
+    from app.services import webpush
+
+    resolved = []
+    monkeypatch.setattr(webpush, "resolve_public_address", lambda *a, **kw: resolved.append(a) or "1.2.3.4")
+    called = []
+    monkeypatch.setattr(webpush, "webpush", lambda **kw: called.append(kw))
+
+    assert webpush.send_web_push(_subscription("http://push.example.com/abc"), "t", "b") is False
+    assert called == []
+    assert resolved == []  # до резолва дело даже не доходит
