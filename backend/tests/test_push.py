@@ -206,3 +206,141 @@ def test_pinned_session_ignores_environment_proxy(monkeypatch):
     assert session.trust_env is False
     # именно trust_env отвечает за подхват прокси из окружения при отправке
     assert session.rebuild_proxies(type("R", (), {"url": "https://push.example.com/x", "headers": {}})(), {}) == {}
+
+
+def test_subscribe_rejects_http_endpoint(client, auth_headers, monkeypatch):
+    """http-подписка ушла бы мимо пиннинга: он навешен на https-адаптер."""
+    enable_push(monkeypatch)
+    response = client.post(
+        "/api/v1/push/subscribe",
+        json={"endpoint": "http://push.example.com/abc", "keys": {"p256dh": "k", "auth": "a"}},
+        headers=auth_headers,
+    )
+    assert response.status_code == 400
+    assert "https" in response.json()["detail"].lower()
+
+
+def test_send_web_push_refuses_non_https_row(monkeypatch):
+    """Строка с http, заведённая до запрета, тоже не отправляется без пиннинга."""
+    from app.services import webpush
+
+    resolved = []
+    monkeypatch.setattr(webpush, "resolve_public_address", lambda *a, **kw: resolved.append(a) or "1.2.3.4")
+    called = []
+    monkeypatch.setattr(webpush, "webpush", lambda **kw: called.append(kw))
+
+    assert webpush.send_web_push(_subscription("http://push.example.com/abc"), "t", "b") is False
+    assert called == []
+    assert resolved == []  # до резолва дело даже не доходит
+
+
+def test_pinned_session_does_not_follow_redirects():
+    """Редирект уводит на непроверенный адрес, а по http — мимо приколотого адаптера.
+
+    Поднимаем два локальных сервера: первый отвечает 302 на второй. Если сессия
+    пойдёт по редиректу, она прочитает тело «внутреннего» сервиса.
+    """
+    import http.server
+    import socketserver
+    import threading
+
+    from app.services.webpush import pinned_session
+
+    class Secret(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"INTERNAL-SECRET")
+
+        def log_message(self, *args):
+            pass
+
+    secret_server = socketserver.TCPServer(("127.0.0.1", 0), Secret)
+    secret_port = secret_server.server_address[1]
+
+    class Redirector(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(302)
+            self.send_header("Location", f"http://127.0.0.1:{secret_port}/")
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    redirector = socketserver.TCPServer(("127.0.0.1", 0), Redirector)
+    threading.Thread(target=secret_server.serve_forever, daemon=True).start()
+    threading.Thread(target=redirector.serve_forever, daemon=True).start()
+    try:
+        response = pinned_session("203.0.113.1").get(
+            f"http://127.0.0.1:{redirector.server_address[1]}/", timeout=5
+        )
+        assert response.status_code == 302
+        assert response.history == []
+        assert b"INTERNAL-SECRET" not in response.content
+    finally:
+        redirector.shutdown()
+        secret_server.shutdown()
+
+
+def test_send_web_push_bounds_the_wait(monkeypatch):
+    """Без таймаута молчащий push-хост исчерпывал пул потоков и останавливал воркер."""
+    from app.services import webpush
+
+    monkeypatch.setattr(webpush, "resolve_public_address", lambda *a, **kw: "93.184.216.34")
+    captured = {}
+    monkeypatch.setattr(webpush, "webpush", lambda **kw: captured.update(kw))
+
+    webpush.send_web_push(_subscription(), "t", "b")
+    assert captured["timeout"] == webpush.PUSH_TIMEOUT_SECONDS
+    assert captured["timeout"] > 0
+
+
+def test_subscribe_rejects_invalid_port(client, auth_headers, monkeypatch):
+    """Такую подписку заводил любой участник, и она валила рассылку всей организации."""
+    enable_push(monkeypatch)
+    response = client.post(
+        "/api/v1/push/subscribe",
+        json={"endpoint": "https://push.example.com:99999/x", "keys": {"p256dh": "k", "auth": "a"}},
+        headers=auth_headers,
+    )
+    assert response.status_code == 400
+
+
+def test_one_broken_subscription_does_not_stop_the_rest(monkeypatch, db_session_factory):
+    """Негодная строка не должна отменять доставку остальным подписчикам."""
+    from app.models import Monitor, Organization, User
+    from app.workers import base
+
+    monkeypatch.setattr(base, "SessionLocal", db_session_factory)
+    monkeypatch.setattr(base, "push_enabled", lambda: True)
+
+    with db_session_factory() as db:
+        user = User(email="push@example.com", hashed_password="x")
+        org = Organization(name="T", slug="pushorg")
+        db.add_all([user, org])
+        db.flush()
+        monitor = Monitor(
+            user_id=user.id, org_id=org.id, slug="m", name="M", type="http",
+            status="down", url="https://example.com", interval=60, config_json={}, enabled=True,
+        )
+        db.add(monitor)
+        for endpoint in ("https://broken.example.com/1", "https://good.example.com/2"):
+            db.add(PushSubscription(org_id=org.id, user_id=user.id, endpoint=endpoint, p256dh="k", auth="a"))
+        db.commit()
+        monitor_id, org_id = monitor.id, org.id
+
+    delivered = []
+
+    def flaky(subscription, *args, **kwargs):
+        if "broken" in subscription.endpoint:
+            raise ValueError("Port out of range 0-65535")
+        delivered.append(subscription.endpoint)
+        return True
+
+    monkeypatch.setattr(base, "send_web_push", flaky)
+
+    with db_session_factory() as db:
+        monitor = db.get(Monitor, monitor_id)
+        base.send_push_alerts(monitor, "down", "body")
+
+    assert delivered == ["https://good.example.com/2"]

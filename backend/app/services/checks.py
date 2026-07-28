@@ -263,7 +263,14 @@ async def execute_steps(page: Any, steps: list[dict[str, Any]], secrets: dict[st
             step = resolve_placeholders(raw_step, secrets)
             action = step.get("action")
             if action == "goto":
-                # проверяем уже подставленный URL: ${VAR} не даёт валидировать его в API
+                # проверяем уже подставленный URL: ${VAR} не даёт валидировать его в API.
+                # ВНИМАНИЕ: это проверка, а НЕ пиннинг. Chromium получает имя хоста и
+                # резолвит его сам, второй раз и независимо, — проверенный адрес сюда
+                # передать нечем. То есть DNS rebinding здесь работает, в отличие от
+                # HTTP-проверок (pin_target) и push-рассылки (pinned_session).
+                # Редиректы внутри навигации Chromium тоже обрабатывает сам и мимо
+                # проверки. Закрывается это только CDP-перехватом или egress-прокси
+                # для браузерного воркера — отложено, см. 04-security.md
                 await asyncio.to_thread(
                     validate_public_url, step["url"], allow_private=get_settings().allow_private_targets
                 )

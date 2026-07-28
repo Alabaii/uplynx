@@ -65,6 +65,16 @@ def resolve_public_address(url: str, *, allow_private: bool = False, resolve: bo
     host = parsed.hostname
     if not host:
         raise BlockedTargetError("URL is missing a host")
+    # .port — ленивое свойство: на порту вне 0-65535 или нечисловом оно бросает
+    # ValueError, а не возвращает None. Раньше это исключение улетало из функции
+    # мимо BlockedTargetError, и вызывающие его не ловили: одна push-подписка на
+    # адрес с таким портом валила рассылку всей организации, не доходя до
+    # остальных подписок. Разбираем порт здесь, до любых веток, чтобы негодный
+    # URL одинаково отвергался и в API (resolve=False), и в воркере
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise BlockedTargetError(f"invalid port in URL: {exc}") from exc
     if allow_private:
         return None
 
@@ -85,7 +95,7 @@ def resolve_public_address(url: str, *, allow_private: bool = False, resolve: bo
         return None
 
     try:
-        infos = socket.getaddrinfo(host, parsed.port, proto=socket.IPPROTO_TCP)
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
     except socket.gaierror as exc:
         raise BlockedTargetError(f"cannot resolve host '{host}'") from exc
     for info in infos:

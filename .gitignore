@@ -259,3 +259,4 @@ AGENTS.md
 # Дампы PostgreSQL (сервис backup) — не для репозитория
 backups/
 
+monitor.db

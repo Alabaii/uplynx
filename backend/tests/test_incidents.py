@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base
-from app.models import Incident, Monitor, Organization, User
+from app.models import CheckResult, Incident, Monitor, Organization, User
 from app.schemas import CheckTask
 from app.services.incidents import update_incident_for_status_change
 from app.workers.base import persist_result
@@ -377,3 +377,74 @@ def test_plan_downgrade_closes_incidents_of_paused_monitors(db_session_factory, 
 
         assert "drop" in paused
         assert db.scalar(select(Incident).where(Incident.monitor_id == second.id)).status == "resolved"
+
+
+def test_inflight_result_does_not_revive_paused_monitor(worker_session_factory):
+    """Задача в полёте не должна воскрешать монитор, который успели остановить.
+
+    Пользователь ставит монитор на паузу именно чтобы прекратить алерты. Задача,
+    опубликованная за секунды до этого, прилетает уже после — и раньше
+    переписывала статус обратно в down, слала алерт и открывала инцидент,
+    закрыть который было уже некому.
+    """
+    monitor_id, _ = seed_worker_monitor(worker_session_factory, status="up")
+
+    with worker_session_factory() as db:
+        monitor = db.get(Monitor, monitor_id)
+        monitor.enabled = False
+        monitor.status = "paused"
+        monitor.next_run_at = None
+        db.commit()
+
+    asyncio.run(
+        persist_result(
+            make_task(monitor_id, "inflight-after-pause"),
+            {"status": "down", "response_time_ms": None, "error": "boom", "details": {}},
+        )
+    )
+
+    with worker_session_factory() as db:
+        monitor = db.get(Monitor, monitor_id)
+        assert monitor.status == "paused"
+        assert db.scalar(select(Incident)) is None
+        # устаревший результат не попадает и в историю: он исказил бы аптайм
+        # монитора, который в это время сознательно не проверялся
+        assert db.scalar(select(CheckResult).where(CheckResult.task_id == "inflight-after-pause")) is None
+
+
+def test_inflight_result_does_not_resurrect_archived_monitor(worker_session_factory):
+    """То же для архивации: монитора в продукте уже нет, инцидента быть не должно."""
+    monitor_id, _ = seed_worker_monitor(worker_session_factory, status="up")
+
+    with worker_session_factory() as db:
+        monitor = db.get(Monitor, monitor_id)
+        monitor.archived_at = datetime.now(timezone.utc)
+        monitor.enabled = False
+        monitor.status = "paused"
+        db.commit()
+
+    asyncio.run(
+        persist_result(
+            make_task(monitor_id, "inflight-after-archive"),
+            {"status": "down", "response_time_ms": None, "error": "boom", "details": {}},
+        )
+    )
+
+    with worker_session_factory() as db:
+        assert db.scalar(select(Incident)) is None
+
+
+def test_result_still_applies_to_an_active_monitor(worker_session_factory):
+    """Обратная сторона: у работающего монитора результат по-прежнему применяется."""
+    monitor_id, _ = seed_worker_monitor(worker_session_factory, status="up")
+
+    asyncio.run(
+        persist_result(
+            make_task(monitor_id, "normal"),
+            {"status": "down", "response_time_ms": None, "error": "boom", "details": {}},
+        )
+    )
+
+    with worker_session_factory() as db:
+        assert db.get(Monitor, monitor_id).status == "down"
+        assert db.scalar(select(Incident)).status == "open"

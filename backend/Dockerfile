@@ -21,6 +21,6 @@ COPY . .
 RUN useradd --system --create-home --uid 10001 appuser
 USER appuser
 
-# миграции применяет scheduler (суперпользователь БД); backend ходит ролью
-# monitor_app без DDL-прав — alembic здесь падал бы на CREATE TABLE
+# миграции применяет отдельный одноразовый сервис migrate (суперпользователь БД);
+# backend ходит ролью monitor_app без DDL-прав — alembic здесь падал бы на CREATE TABLE
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

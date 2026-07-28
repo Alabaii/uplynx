@@ -68,6 +68,11 @@ def send_push_alerts(monitor: Monitor, scope: str, body: str) -> None:
             except PushSubscriptionGone:
                 db.delete(subscription)
                 removed += 1
+            except Exception:  # noqa: BLE001
+                # одна негодная подписка не должна отменять рассылку остальным:
+                # строку заводит любой участник, а увидеть и удалить её в UI
+                # нельзя — список подписок наружу не отдаётся
+                logger.exception("failed to send push to subscription %s", subscription.id)
         if removed:
             db.commit()
     if sent or removed:
@@ -178,13 +183,24 @@ def store_result(task: CheckTask, result: dict) -> tuple[Monitor, CheckResult, s
     а воркер обрабатывает проверки конкурентно — в event loop они останавливали бы
     все остальные проверки на время каждого обращения к БД.
 
-    None — результат уже записан (идемпотентность по task_id) или монитор удалён.
+    None — результат уже записан (идемпотентность по task_id), монитор удалён
+    или его успели остановить, пока задача летела.
     """
     with SessionLocal() as db:
         if db.scalar(select(CheckResult).where(CheckResult.task_id == task.task_id)):
             return None
         monitor = db.get(Monitor, task.monitor_id)
         if not monitor:
+            return None
+        if not monitor.enabled or monitor.archived_at is not None:
+            # Монитор остановили между публикацией задачи и её обработкой. Задача
+            # уже в очереди, и через секунды прилетает результат: без этой проверки
+            # он переписывал status приостановленного монитора обратно в down,
+            # слал алерт и открывал инцидент, который закрыть больше некому.
+            # Пауза ради прекращения алертов давала лишний алерт — ровно то, от
+            # чего пользователь и защищался. Публикуют задачи только для
+            # включённых мониторов, поэтому такой результат всегда устаревший.
+            logger.info("dropping stale result for stopped monitor %s", monitor.slug)
             return None
         previous_status = monitor.status
         check_result = CheckResult(
