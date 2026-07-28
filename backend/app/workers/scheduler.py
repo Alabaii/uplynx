@@ -105,11 +105,17 @@ def publish_due_checks(publisher: RabbitPublisher | None = None) -> int:
             .over(partition_by=Monitor.org_id, order_by=Monitor.next_run_at)
             .label("rn")
         )
-        ranked = (
-            select(Monitor.id, Monitor.next_run_at, rank)
-            .where(Monitor.enabled.is_(True), Monitor.next_run_at <= now)
-            .subquery()
+        due = select(Monitor.id, Monitor.next_run_at, rank).where(
+            Monitor.enabled.is_(True), Monitor.next_run_at <= now
         )
+        if not settings.browser_monitors_enabled:
+            # Гашение на старте могло не отработать (БД была недоступна — исключение
+            # там намеренно проглочено, чтобы шедулер поднялся). Без этого фильтра
+            # задача всё равно ушла бы в очередь, воркер вернул бы down, а
+            # store_result записал бы его: монитор-то enabled. Итог — ложный
+            # инцидент и алерт из-за выключенной нами же фичи
+            due = due.where(Monitor.type != "browser")
+        ranked = due.subquery()
         due_ids = db.scalars(
             select(ranked.c.id)
             .where(ranked.c.rn <= settings.scheduler_org_batch_limit)
