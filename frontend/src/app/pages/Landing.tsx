@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { getPublicPlans, type Plan } from '../api';
 import { useTexts } from '../i18n';
+import { useMeta } from '../meta-context';
 
 function formatRub(kopeks: number): string {
   return `${Math.round(kopeks / 100).toLocaleString('ru-RU')} ₽`;
@@ -29,6 +30,12 @@ export default function Landing() {
       ctaStart: 'Начать бесплатно',
       ctaPricing: 'Смотреть тарифы',
       featuresTitle: 'Всё, что нужно для спокойного сна',
+      // подменяет первый пункт, когда браузерные сценарии выключены на инсталляции:
+      // обещать на лендинге то, чего продукт сейчас не даёт, нельзя
+      featureChecksHttpOnly: {
+        title: 'HTTP-проверки',
+        text: 'Статус ответа, текст в теле и время отклика — с анти-флаппингом и настраиваемым интервалом.',
+      },
       features: [
         {
           title: 'HTTP- и browser-проверки',
@@ -73,6 +80,10 @@ export default function Landing() {
       ctaStart: 'Start for free',
       ctaPricing: 'See pricing',
       featuresTitle: 'Everything you need to sleep well',
+      featureChecksHttpOnly: {
+        title: 'HTTP checks',
+        text: 'Response status, body text and response time — with anti-flapping and a configurable interval.',
+      },
       features: [
         {
           title: 'HTTP and browser checks',
@@ -111,6 +122,10 @@ export default function Landing() {
   });
 
   const featureIcons = [Globe, BellRing, Siren, ShieldCheck, FileCode2, Users];
+  // сценарии могут быть выключены на инсталляции — подменяем первый пункт, а не
+  // убираем его: иконки сопоставлены пунктам по индексу
+  const browserEnabled = useMeta()?.browser_monitors_enabled ?? false;
+  const features = browserEnabled ? t.features : [t.featureChecksHttpOnly, ...t.features.slice(1)];
 
   useEffect(() => {
     let ignore = false;
@@ -154,7 +169,7 @@ export default function Landing() {
         <div className="mx-auto max-w-6xl px-4">
           <h2 className="text-center text-2xl font-semibold">{t.featuresTitle}</h2>
           <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {t.features.map((feature, index) => {
+            {features.map((feature, index) => {
               const Icon = featureIcons[index] ?? Globe;
               return (
                 <div key={feature.title} className="rounded-lg bg-background p-6">

@@ -53,8 +53,15 @@ export const router = createBrowserRouter([
   { path: '/verify-email', element: withSuspense(<VerifyEmailPage />) },
   { path: '/status/:slug', element: withSuspense(<StatusPage />) },
   {
-    // публичный сайт: лендинг, тарифы, юридика, контакты (требование модерации ЮKassa)
-    element: <PublicLayout />,
+    // публичный сайт: лендинг, тарифы, юридика, контакты (требование модерации ЮKassa).
+    // MetaProvider нужен и здесь: прайс и лендинг перечисляют возможности, часть
+    // которых инсталляция может не отдавать (браузерные сценарии). /meta открыт
+    // без авторизации, поэтому провайдер работает и до входа
+    element: (
+      <MetaProvider>
+        <PublicLayout />
+      </MetaProvider>
+    ),
     children: [
       { path: '/welcome', element: withSuspense(<Landing />) },
       { path: '/pricing', element: withSuspense(<Pricing />) },
