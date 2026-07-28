@@ -107,7 +107,9 @@ export function AppLayout() {
     await releasePushSubscription();
     // отзываем refresh-сессию на сервере; сбой не мешает локальному выходу
     logout().catch(() => {});
-    clearSession();
+    // токены снимаются синхронно, но офлайн-кэш чистится асинхронно — дожидаемся
+    // до навигации, чтобы данные организации не остались на устройстве
+    await clearSession();
     navigate('/login');
   };
 

@@ -163,7 +163,8 @@ export default function AuthPage() {
       }
 
       const token = await login(email, password);
-      startSession(token.access_token, email, token.refresh_token);
+      // ждём очистки офлайн-кэша прежнего владельца данных до перехода на дашборд
+      await startSession(token.access_token, email, token.refresh_token);
       navigate('/');
     } catch (error) {
       // 403 на этой странице = требуется подтверждение email (после register или login)
