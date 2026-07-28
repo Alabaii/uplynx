@@ -43,6 +43,58 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+  deps:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      # Уязвимости в зависимостях не ловятся ни тестами, ни ревью кода: starlette
+      # приехал в прод-образ с восемью известными CVE и заметили это только
+      # ручным прогоном pip-audit. Гейт обязан быть блокирующим — нерушащая
+      # проверка превращается в шум, который никто не читает.
+      - name: pip-audit (backend)
+        run: |
+          pip install pip-audit
+          # PYSEC-2026-1325 — ecdsa, тайминговая атака Minerva. Фикса не
+          # существует; пакет тянет только python-jose, и на живом пути его нет:
+          # JWT подписываются HS256 (HMAC), VAPID — через py_vapid на cryptography.
+          # Снимется вместе с уходом с python-jose на PyJWT (бэклог).
+          pip-audit -r backend/requirements.txt --ignore-vuln PYSEC-2026-1325
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: npm audit (frontend, прод-зависимости)
+        working-directory: frontend
+        run: |
+          npm ci
+          npm audit --omit=dev --json > audit.json || true
+          node -e "
+            // GHSA-qwww-vcr4-c8h2 — react-router, обход CSRF в режиме RSC.
+            // Здесь SPA на Vite: серверных компонентов и actions нет, режим не
+            // используется. Фикс — мажорный бамп 7 -> 8, отдельной задачей.
+            const allow = new Set(['GHSA-qwww-vcr4-c8h2']);
+            const found = require('./audit.json').vulnerabilities || {};
+            const unexpected = [];
+            for (const [name, entry] of Object.entries(found)) {
+              if (!['high', 'critical'].includes(entry.severity)) continue;
+              const ids = (entry.via || [])
+                .filter((via) => typeof via === 'object')
+                .map((via) => String(via.url || '').split('/').pop());
+              if (ids.length && ids.every((id) => allow.has(id))) continue;
+              unexpected.push(name + ' (' + entry.severity + '): ' + ids.join(', '));
+            }
+            if (unexpected.length) {
+              console.error('Новые high/critical уязвимости:\n' + unexpected.join('\n'));
+              process.exit(1);
+            }
+            console.log('npm audit: новых high/critical нет');
+          "
+
   images:
     name: Docker images build
     runs-on: ubuntu-latest

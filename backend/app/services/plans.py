@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models import Monitor, Organization, OrgMember, Plan
+from app.services.incidents import resolve_open_incident
 
 # Согласованная владельцем сетка (лимиты 2026-07-09; цены в копейках — рублёвый
 # биллинг, 2026-07-10: Free 0 / Pro 990₽ / Business 3990₽). Дублирует сиды миграций
@@ -178,4 +179,7 @@ def apply_plan_downgrade(db: Session, org: Organization) -> list[str]:
         monitor.enabled = False
         monitor.status = "paused"
         monitor.next_run_at = None
+        # даунгрейд останавливает проверки: инцидент, открытый до него, уже
+        # никогда не закроется пайплайном
+        resolve_open_incident(db, monitor.id)
     return [monitor.slug for monitor in paused]

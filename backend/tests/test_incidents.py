@@ -266,3 +266,114 @@ def test_monitor_incidents_endpoint_and_route_order(client, db_session_factory):
     assert rows[0]["monitor_slug"] == "site"
     # /monitors/{slug}/incidents не перехватывается /monitors/{monitor_id}
     assert client.get("/api/v1/monitors/ghost/incidents", headers=owner).status_code == 404
+
+
+# --- инцидент закрывается, когда монитор останавливают мимо пайплайна ---------------------------
+
+
+def test_resolve_open_incident_closes_and_is_idempotent(db_session_factory):
+    from app.services.incidents import resolve_open_incident
+
+    with db_session_factory() as db:
+        monitor = seed_monitor(db)
+        update_incident_for_status_change(db, monitor, "down", "boom")
+        db.flush()
+
+        assert resolve_open_incident(db, monitor.id) is not None
+        db.commit()
+        incident = db.scalar(select(Incident))
+        assert incident.status == "resolved"
+        assert incident.resolved_at is not None
+        assert incident.duration_seconds >= 0
+
+        # повторный вызов уже нечего закрывать — не создаёт и не портит запись
+        assert resolve_open_incident(db, monitor.id) is None
+
+
+def test_archiving_monitor_closes_its_open_incident(client, db_session_factory):
+    """Архивация убирает монитор из продукта — инцидент не должен остаться открытым."""
+    headers = register_and_login(client, "archive-incident@example.com")
+    client.post("/api/v1/monitors", json=MONITOR_PAYLOAD, headers=headers)
+
+    with db_session_factory() as db:
+        monitor = db.scalar(select(Monitor).where(Monitor.slug == "site"))
+        update_incident_for_status_change(db, monitor, "down", "boom")
+        db.commit()
+
+    assert client.delete("/api/v1/monitors/site", headers=headers).status_code == 204
+
+    with db_session_factory() as db:
+        incident = db.scalar(select(Incident))
+        assert incident.status == "resolved"
+        assert incident.resolved_at is not None
+
+
+def test_pausing_monitor_closes_its_open_incident(client, db_session_factory):
+    """Пауза через UI останавливает проверки: закрыть инцидент больше некому."""
+    headers = register_and_login(client, "pause-incident@example.com")
+    client.post("/api/v1/monitors", json=MONITOR_PAYLOAD, headers=headers)
+
+    with db_session_factory() as db:
+        monitor = db.scalar(select(Monitor).where(Monitor.slug == "site"))
+        update_incident_for_status_change(db, monitor, "down", "boom")
+        db.commit()
+
+    response = client.put("/api/v1/monitors/site", json={"enabled": False}, headers=headers)
+    assert response.status_code == 200
+
+    with db_session_factory() as db:
+        assert db.scalar(select(Incident)).status == "resolved"
+
+
+def test_monitor_dropped_from_config_closes_its_open_incident(client, db_session_factory):
+    """Ресинк конфига выключает отсутствующие мониторы — с тем же следствием."""
+    headers = register_and_login(client, "config-incident@example.com")
+    client.post("/api/v1/monitors", json=MONITOR_PAYLOAD, headers=headers)
+
+    with db_session_factory() as db:
+        monitor = db.scalar(select(Monitor).where(Monitor.slug == "site"))
+        update_incident_for_status_change(db, monitor, "down", "boom")
+        db.commit()
+
+    response = client.post(
+        "/api/v1/config",
+        json={"content": "version: 1\nmonitors: []\n", "format": "yaml"},
+        headers=headers,
+    )
+    assert response.status_code == 200
+
+    with db_session_factory() as db:
+        assert db.scalar(select(Incident)).status == "resolved"
+
+
+def test_plan_downgrade_closes_incidents_of_paused_monitors(db_session_factory, monkeypatch):
+    """Даунгрейд тарифа гасит мониторы сверх лимита — их инциденты тоже закрываются."""
+    from app.models import Plan
+    from app.services.plans import apply_plan_downgrade
+
+    monkeypatch.setattr("app.services.plans.plan_gating_active", lambda: True)
+
+    with db_session_factory() as db:
+        db.add(Plan(
+            slug="tiny", name="Tiny", price_monthly_kopeks=0, annual_discount_pct=0,
+            max_monitors=1, min_interval_seconds=60, max_browser_monitors=0,
+            browser_min_interval_seconds=300, max_members=1, retention_days=30, sort_order=0,
+        ))
+        db.flush()
+        first = seed_monitor(db, slug="keep", org_slug="downgrade", email="dg@example.com")
+        second = Monitor(
+            user_id=first.user_id, org_id=first.org_id, slug="drop", name="Drop", type="http",
+            status="down", url="https://example.com", interval=60, config_json={}, enabled=True,
+        )
+        db.add(second)
+        db.flush()
+        update_incident_for_status_change(db, second, "down", "boom")
+        org = db.get(Organization, first.org_id)
+        org.plan_slug = "tiny"
+        db.flush()
+
+        paused = apply_plan_downgrade(db, org)
+        db.commit()
+
+        assert "drop" in paused
+        assert db.scalar(select(Incident).where(Incident.monitor_id == second.id)).status == "resolved"
