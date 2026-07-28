@@ -228,11 +228,16 @@ def run_forever() -> None:
     settings = get_settings()
     publisher = RabbitPublisher()
     last_rollup_date: date | None = None
-    try:
-        pause_browser_monitors_if_disabled()
-    except Exception:  # noqa: BLE001 — недоступная БД на старте не должна ронять шедулер
-        logger.exception("failed to pause browser monitors")
     while True:
+        try:
+            # каждый тик, а не однократно на старте: единственная попытка при
+            # недоступной БД оставляла бы монитор навсегда enabled со статусом up —
+            # фильтр в выборке снял бы ложный алерт, но дашборд показывал бы
+            # зелёное у сервиса, за которым никто не следит. Запрос дешёвый и в
+            # норме не находит ничего, а состояние в итоге сходится
+            pause_browser_monitors_if_disabled()
+        except Exception:  # noqa: BLE001 — недоступная БД не должна ронять шедулер
+            logger.exception("failed to pause browser monitors")
         today = datetime.now(timezone.utc).date()
         if today != last_rollup_date:
             last_rollup_date = today
