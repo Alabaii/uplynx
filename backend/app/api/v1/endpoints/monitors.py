@@ -20,7 +20,12 @@ from app.schemas import (
     MonitorUptimeRead,
 )
 from app.services.audit import record
-from app.services.config_sync import create_monitor_from_payload, persist_monitors_as_config, update_monitor_from_payload
+from app.services.config_sync import (
+    create_monitor_from_payload,
+    enforce_browser_monitors_enabled,
+    persist_monitors_as_config,
+    update_monitor_from_payload,
+)
 from app.services.incidents import resolve_open_incident
 from app.services.plans import get_org_plan, min_interval_for, plan_gating_active
 from app.services.queue import RabbitPublisher, ssl_refresh_due, task_for_monitor
@@ -217,6 +222,11 @@ def check_monitor_now(
     if None in in_maintenance_ids or monitor.id in in_maintenance_ids:
         # внеплановая проверка в окне обслуживания портила бы статистику и будила алерты
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Monitor is in maintenance")
+    # «Проверить сейчас» публикует задачу мимо шедулера, поэтому фильтр в его
+    # выборке сюда не действует: если гашение browser-мониторов на старте не
+    # отработало, монитор остаётся enabled, и одна кнопка отправляла бы задачу
+    # в очередь в обход выключённой фичи
+    enforce_browser_monitors_enabled(monitor.type)
     enforce_manual_check_interval(db, ctx.org, monitor)
     now = datetime.now(timezone.utc)
     collect_ssl = ssl_refresh_due(monitor, now)

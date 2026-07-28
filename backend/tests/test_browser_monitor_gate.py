@@ -157,3 +157,61 @@ def test_worker_does_not_launch_chromium_for_queued_task(monkeypatch):
 
     assert launched == []
     assert result["details"]["browser_disabled"] is True
+
+
+def test_check_now_is_rejected_for_browser_monitor(client, auth_headers, monkeypatch):
+    """«Проверить сейчас» публикует задачу мимо шедулера — гейт нужен и здесь.
+
+    Фильтр в выборке шедулера на этот путь не действует: если гашение на старте
+    не отработало и монитор остался enabled, одна кнопка отправляла бы задачу
+    в очередь в обход выключённой фичи.
+    """
+    # заводим монитор при включённых сценариях, затем выключаем их
+    monkeypatch.setattr(get_settings(), "browser_monitors_enabled", True)
+    assert client.post("/api/v1/monitors", json=BROWSER_PAYLOAD, headers=auth_headers).status_code == 201
+    monkeypatch.setattr(get_settings(), "browser_monitors_enabled", False)
+
+    published = []
+
+    class FakePublisher:
+        def publish(self, task):
+            published.append(task)
+
+        def close(self):
+            return None
+
+    from app.api.v1.endpoints import monitors as monitors_module
+
+    client.app.dependency_overrides[monitors_module.get_publisher] = lambda: FakePublisher()
+    try:
+        response = client.post("/api/v1/monitors/flow/check", headers=auth_headers)
+    finally:
+        client.app.dependency_overrides.pop(monitors_module.get_publisher, None)
+
+    assert response.status_code == 403
+    assert published == []
+
+
+def test_check_now_still_works_for_http_monitor(client, auth_headers):
+    """Обратная сторона: HTTP-мониторы кнопкой проверяются как обычно."""
+    assert client.post("/api/v1/monitors", json=HTTP_PAYLOAD, headers=auth_headers).status_code == 201
+
+    published = []
+
+    class FakePublisher:
+        def publish(self, task):
+            published.append(task)
+
+        def close(self):
+            return None
+
+    from app.api.v1.endpoints import monitors as monitors_module
+
+    client.app.dependency_overrides[monitors_module.get_publisher] = lambda: FakePublisher()
+    try:
+        response = client.post("/api/v1/monitors/site/check", headers=auth_headers)
+    finally:
+        client.app.dependency_overrides.pop(monitors_module.get_publisher, None)
+
+    assert response.status_code == 202
+    assert len(published) == 1
