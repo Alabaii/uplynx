@@ -19,7 +19,9 @@ function slugify(value: string) {
 
 async function switchAndReload(orgId: number) {
   const token = await switchOrg(orgId);
-  startSession(token.access_token, getSessionEmail() ?? undefined);
+  // ждём: startSession чистит офлайн-кэш прежней организации, а следом идёт
+  // полная навигация — незавершённое удаление оборвалось бы вместе с документом
+  await startSession(token.access_token, getSessionEmail() ?? undefined);
   window.location.assign('/');
 }
 

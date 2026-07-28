@@ -35,12 +35,19 @@ export function createSession(token: string, email?: string, refreshToken?: stri
   }
 }
 
-export function startSession(token: string, email?: string, refreshToken?: string | null) {
+export async function startSession(token: string, email?: string, refreshToken?: string | null) {
   // вход и смена организации — момент, когда офлайн-кэш API относится уже к другому
   // владельцу данных: логаут его чистит, но пользователь может просто закрыть вкладку,
-  // а следующий вход в офлайне показал бы мониторы предыдущего воркспейса
-  clearOfflineApiCache();
+  // а следующий вход в офлайне показал бы мониторы предыдущего воркспейса.
+  //
+  // Сессия записывается ПЕРВОЙ и синхронно. Обратный порядок выглядел логичнее
+  // (не снести кэш уже нового пользователя), но делал вход хрупким: очистка
+  // асинхронная, и вызывающий, забывший await, уходил на защищённый роут раньше
+  // записи токена — ProtectedRoute не видел сессии и отправлял на публичный
+  // лендинг, то есть успешный вход выглядел неудачным. Снесённый кэш свежего
+  // пользователя стоит одного повторного запроса по сети, сломанный вход — нет.
   createSession(token, email, refreshToken);
+  await clearOfflineApiCache();
 }
 
 export function getAuthToken() {
@@ -59,7 +66,7 @@ export function getSessionEmail() {
   return sessionStorage.getItem(AUTH_EMAIL_KEY);
 }
 
-export function clearSession() {
+export function clearSession(): Promise<void> {
   sessionStorage.removeItem(AUTH_TOKEN_KEY);
   sessionStorage.removeItem(AUTH_EXPIRES_AT_KEY);
   sessionStorage.removeItem(AUTH_EMAIL_KEY);
@@ -68,17 +75,36 @@ export function clearSession() {
   // Clean up the previous mock auth value if it exists from older builds.
   localStorage.removeItem('token');
 
-  clearOfflineApiCache();
+  // Токены убраны синхронно — сессия мертва сразу. Промис отдаётся для тех, кто
+  // следом делает полную навигацию: им нужно дождаться очистки кэша
+  return clearOfflineApiCache();
 }
 
 // офлайн-кэш API живёт в service worker: токены убрали, а ответы с данными
 // организации остались бы на устройстве до следующего входа
-function clearOfflineApiCache() {
-  if (!('serviceWorker' in navigator)) {
-    return;
+async function clearOfflineApiCache(): Promise<void> {
+  // Сообщение доходит только когда страницей управляет активный worker. После
+  // hard-reload и на первой загрузке (до clients.claim) controller === null, и
+  // логаут молча не чистил НИЧЕГО: следующий вошедший на общем устройстве,
+  // оказавшись офлайн, получал из кэша чужие мониторы, инциденты и аудит.
+  // Caches доступен и самой странице — чистим напрямую, не полагаясь на worker.
+  //
+  // Функция асинхронная и её результат обязаны дожидаться те, кто сразу после
+  // делает полную навигацию (location.assign): иначе документ выгружается до
+  // резолва caches.keys(), коллбэк не выполняется и не удаляется ничего —
+  // ровно на том пути, где этот механизм единственный.
+  if ('caches' in window) {
+    try {
+      const names = await caches.keys();
+      await Promise.all(
+        names.filter((name) => name.startsWith('uplynx-api')).map((name) => caches.delete(name)),
+      );
+    } catch {
+      // приватный режим и запрет storage — чистить нечего
+    }
   }
 
-  navigator.serviceWorker.controller?.postMessage({ type: 'clear-api-cache' });
+  navigator.serviceWorker?.controller?.postMessage({ type: 'clear-api-cache' });
 }
 
 function hasFreshAccessToken() {

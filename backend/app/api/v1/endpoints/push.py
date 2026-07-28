@@ -22,9 +22,22 @@ def validate_push_endpoint(endpoint: str) -> None:
 
     Здесь, как и при создании монитора, проверка без резолва — мгновенный отказ
     на литеральный приватный адрес; с резолвом её повторяет воркер перед отправкой.
+
+    Только https: спецификация Web Push другого и не допускает (браузер иных
+    endpoint'ов и не выдаёт), а у воркера пиннинг проверенного адреса стоит на
+    https-адаптере (services/webpush.py) — подписка на http ушла бы мимо него
+    дефолтным адаптером, который резолвит имя заново, и окно DNS rebinding
+    открылось бы снова. Под allow_private_targets проверка не нужна: там SSRF-
+    защита снята целиком и осознанно, пиннинга нет по определению.
     """
+    allow_private = get_settings().allow_private_targets
+    if not allow_private and not endpoint.lower().startswith("https://"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Push endpoint must use https",
+        )
     try:
-        validate_public_url(endpoint, allow_private=get_settings().allow_private_targets, resolve=False)
+        validate_public_url(endpoint, allow_private=allow_private, resolve=False)
     except BlockedTargetError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

@@ -51,6 +51,24 @@ services:
       timeout: 5s
       retries: 10
 
+  # Миграции отдельным одноразовым шагом, а не внутри шедулера. Раньше их гонял
+  # шедулер, а он ждал backend (condition: service_started) — то есть API уже
+  # принимал трафик, когда схемы ещё не было, и на каждом схемном деплое открывалось
+  # окно 500-х. /health при этом в БД не ходит и оставался зелёным.
+  # Все, кому нужна схема, теперь ждут завершения этого шага.
+  migrate:
+    build: ./backend
+    command: alembic upgrade head
+    environment:
+      # суперпользователь БД: владелец миграций и единственный, кому нужен DDL
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-monitor}:${POSTGRES_PASSWORD:-monitor}@postgres:5432/${POSTGRES_DB:-monitor}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-change-me}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   backend:
     build: ./backend
     environment:
@@ -77,6 +95,9 @@ services:
       # SSRF-защита: false — мониторы не могут вести во внутреннюю сеть (SaaS);
       # true — разрешить приватные адреса (on-prem мониторинг внутренних сервисов)
       ALLOW_PRIVATE_TARGETS: ${ALLOW_PRIVATE_TARGETS:-false}
+      # браузерные сценарии: у их воркера нет пиннинга адреса (Chromium резолвит
+      # имя сам), поэтому по умолчанию выключены — см. 04-security.md
+      BROWSER_MONITORS_ENABLED: ${BROWSER_MONITORS_ENABLED:-false}
       # Sentry DSN; пусто — отключён
       SENTRY_DSN: ${SENTRY_DSN:-}
       # VAPID-ключи для web push (сгенерировать: python -m app.tools.vapid); пусто — push отключён
@@ -106,6 +127,8 @@ services:
       retries: 6
       start_period: 20s
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       rabbitmq:
@@ -113,13 +136,15 @@ services:
 
   scheduler:
     build: ./backend
-    command: sh -c "alembic upgrade head && python -m app.workers.scheduler"
+    command: python -m app.workers.scheduler
     environment:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-monitor}:${POSTGRES_PASSWORD:-monitor}@postgres:5432/${POSTGRES_DB:-monitor}
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-change-me}
       # нужен шедулеру: в enterprise он применяет мин. интервал тарифа на лету
       DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-team}
+      # шедулер гасит включённые browser-мониторы, когда сценарии выключены
+      BROWSER_MONITORS_ENABLED: ${BROWSER_MONITORS_ENABLED:-false}
       SENTRY_DSN: ${SENTRY_DSN:-}
       METRICS_PORT: "9101"
     # /metrics только на localhost хоста — наружу не публикуется
@@ -127,12 +152,12 @@ services:
       - "127.0.0.1:9101:9101"
     restart: unless-stopped
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      backend:
-        condition: service_started
 
   worker-http:
     build: ./backend
@@ -169,12 +194,12 @@ services:
       - "127.0.0.1:9102:9102"
     restart: unless-stopped
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      backend:
-        condition: service_started
 
   worker-browser:
     build:
@@ -192,6 +217,8 @@ services:
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
       # браузерных проверок одновременно — каждая держит свой Chromium (память!)
       BROWSER_CONCURRENCY: ${BROWSER_CONCURRENCY:-2}
+      # выключено — воркер не поднимает Chromium даже на задачу из очереди
+      BROWSER_MONITORS_ENABLED: ${BROWSER_MONITORS_ENABLED:-false}
       CHECK_TIMEOUT_SECONDS: ${CHECK_TIMEOUT_SECONDS:-30}
       # VAPID-ключи для web push (сгенерировать: python -m app.tools.vapid); пусто — push отключён
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
@@ -210,12 +237,12 @@ services:
       - "127.0.0.1:9103:9103"
     restart: unless-stopped
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      backend:
-        condition: service_started
 
   backup:
     image: postgres:16-alpine

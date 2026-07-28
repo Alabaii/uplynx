@@ -16,6 +16,7 @@ from app.core.observability import (
     start_metrics_server,
 )
 from app.models import MaintenanceWindow, Monitor, Organization, Plan, SchedulerHeartbeat
+from app.services.incidents import resolve_open_incident
 from app.services.plans import min_interval_for, plan_gating_active
 from app.services.queue import DEAD_LETTER_QUEUES, RabbitPublisher, ssl_refresh_due, task_for_monitor
 from app.services.retention import ensure_partitions, purge_expired_tokens, rollup_and_prune
@@ -43,6 +44,42 @@ def update_pipeline_gauges(publisher: RabbitPublisher) -> None:
         DLQ_DEPTH.labels(queue=dead_queue).set(method.method.message_count)
 
 
+def pause_browser_monitors_if_disabled() -> int:
+    """Гасит включённые browser-мониторы, когда сценарии выключены настройкой.
+
+    Просто «не публиковать задачи» здесь мало: монитор остался бы enabled со
+    статусом up, и дашборд показывал бы зелёное у сервиса, за которым никто не
+    следит. Для продукта про мониторинг это худший вид вранья, поэтому
+    состояние приводится в соответствие явно — как при даунгрейде тарифа.
+
+    Открытые инциденты закрываются: проверок не будет, закрыть их иначе некому.
+    Обратно мониторы включает владелец — сами они не поднимутся, чтобы
+    включение сценариев не запустило разом всё, что копилось.
+    """
+    if get_settings().browser_monitors_enabled:
+        return 0
+    with SessionLocal() as db:
+        monitors = db.scalars(
+            select(Monitor).where(
+                Monitor.type == "browser", Monitor.enabled.is_(True), Monitor.archived_at.is_(None)
+            )
+        ).all()
+        for monitor in monitors:
+            monitor.enabled = False
+            monitor.status = "paused"
+            monitor.next_run_at = None
+            resolve_open_incident(db, monitor.id)
+        if monitors:
+            db.commit()
+    if monitors:
+        logger.warning(
+            "browser scenarios are disabled (BROWSER_MONITORS_ENABLED): paused %s monitor(s): %s",
+            len(monitors),
+            ", ".join(monitor.slug for monitor in monitors),
+        )
+    return len(monitors)
+
+
 def write_heartbeat() -> None:
     """Отмечает живость шедулера — читается /health/scheduler для liveness."""
     now = datetime.now(timezone.utc)
@@ -68,11 +105,17 @@ def publish_due_checks(publisher: RabbitPublisher | None = None) -> int:
             .over(partition_by=Monitor.org_id, order_by=Monitor.next_run_at)
             .label("rn")
         )
-        ranked = (
-            select(Monitor.id, Monitor.next_run_at, rank)
-            .where(Monitor.enabled.is_(True), Monitor.next_run_at <= now)
-            .subquery()
+        due = select(Monitor.id, Monitor.next_run_at, rank).where(
+            Monitor.enabled.is_(True), Monitor.next_run_at <= now
         )
+        if not settings.browser_monitors_enabled:
+            # Страховка на тик, в котором гашение ещё не отработало (БД была
+            # недоступна — исключение там намеренно проглочено, чтобы шедулер
+            # поднялся). Без фильтра задача ушла бы в очередь, воркер вернул бы
+            # down, а store_result записал бы его: монитор-то ещё enabled.
+            # Итог — ложный инцидент и алерт из-за выключенной нами же фичи
+            due = due.where(Monitor.type != "browser")
+        ranked = due.subquery()
         due_ids = db.scalars(
             select(ranked.c.id)
             .where(ranked.c.rn <= settings.scheduler_org_batch_limit)
@@ -186,6 +229,15 @@ def run_forever() -> None:
     publisher = RabbitPublisher()
     last_rollup_date: date | None = None
     while True:
+        try:
+            # каждый тик, а не однократно на старте: единственная попытка при
+            # недоступной БД оставляла бы монитор навсегда enabled со статусом up —
+            # фильтр в выборке снял бы ложный алерт, но дашборд показывал бы
+            # зелёное у сервиса, за которым никто не следит. Запрос дешёвый и в
+            # норме не находит ничего, а состояние в итоге сходится
+            pause_browser_monitors_if_disabled()
+        except Exception:  # noqa: BLE001 — недоступная БД не должна ронять шедулер
+            logger.exception("failed to pause browser monitors")
         today = datetime.now(timezone.utc).date()
         if today != last_rollup_date:
             last_rollup_date = today

@@ -20,8 +20,12 @@ services:
 
   # ENVIRONMENT нужен каждому процессу отдельно: проверки конфигурации (дефолтные
   # пароли БД и брокера) в development только предупреждают, а падают на старте
-  # именно в production. У шедулера к тому же свой DATABASE_URL — суперпользователь
-  # БД, владелец миграций; без этой строки его пароль никто бы не проверил
+  # именно в production. У шедулера и migrate к тому же свой DATABASE_URL —
+  # суперпользователь БД; без этих строк его пароль никто бы не проверил
+  migrate:
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+
   scheduler:
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-production}

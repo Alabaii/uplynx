@@ -47,6 +47,25 @@ def validate_target_url(url: str | None) -> None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
+def enforce_browser_monitors_enabled(monitor_type: str) -> None:
+    """403 на попытку ВКЛЮЧИТЬ browser-монитор, пока сценарии выключены настройкой.
+
+    Запрещено именно включение, а не существование: конфиг — источник правды и
+    выгружается из БД целиком, поэтому запрет на само наличие browser-монитора
+    в документе ломал бы обычную загрузку конфига у всех, у кого он когда-либо
+    был. Выключённый монитор никуда не ходит и ничем не опасен.
+    """
+    if monitor_type != "browser" or get_settings().browser_monitors_enabled:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=(
+            "Browser scenarios are temporarily disabled on this installation "
+            "(BROWSER_MONITORS_ENABLED)"
+        ),
+    )
+
+
 def parse_config(content: str, fmt: str) -> ConfigDocument:
     try:
         raw: Any = json.loads(content) if fmt == "json" else yaml.safe_load(content)
@@ -240,6 +259,7 @@ def upload_config(db: Session, user: User, org: Organization, content: str, fmt:
     )
     for cfg in document.monitors:
         if cfg.enabled:
+            enforce_browser_monitors_enabled(cfg.type)
             validate_plan_interval(db, org, cfg.type, cfg.interval)
     version = create_config_version(db, user, org, content, fmt)
     resync_monitors(db, user, org, document)
@@ -278,6 +298,7 @@ def create_monitor_from_payload(db: Session, user: User, org: Organization, payl
     ):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Monitor already exists")
     if payload.enabled:
+        enforce_browser_monitors_enabled(payload.type)
         org_enabled = db.scalar(
             select(func.count())
             .select_from(Monitor)
@@ -319,6 +340,7 @@ def update_monitor_from_payload(db: Session, user: User, org: Organization, moni
         validate_target_url(data["url"])
     will_be_enabled = data.get("enabled", monitor.enabled)
     if will_be_enabled:
+        enforce_browser_monitors_enabled(monitor.type)
         validate_plan_interval(db, org, monitor.type, data.get("interval", monitor.interval))
     if data.get("enabled") and not monitor.enabled:
         # включение ранее выключенного — это +1 к счётчикам плана

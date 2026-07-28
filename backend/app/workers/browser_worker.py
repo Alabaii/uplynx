@@ -31,6 +31,19 @@ def secrets_for_task(task: CheckTask) -> dict[str, str]:
 
 
 async def browser_check_with_secrets(task: CheckTask) -> dict:
+    if not get_settings().browser_monitors_enabled:
+        # Сценарии выключены настройкой, но задача могла остаться в durable-очереди
+        # с прошлого запуска. Chromium не поднимаем: именно его сетевой доступ и
+        # закрывает эта настройка. Результат до монитора не дойдёт — шедулер уже
+        # погасил такие мониторы, а store_result отбрасывает результаты
+        # остановленных, так что ложного алерта отсюда не будет
+        logger.warning("browser scenarios are disabled: dropping queued task %s", task.task_id)
+        return {
+            "status": "down",
+            "response_time_ms": None,
+            "error": "browser scenarios are disabled on this installation",
+            "details": {"browser_disabled": True},
+        }
     # чтение из БД синхронное (SQLAlchemy) — не блокируем event loop
     secrets = await asyncio.to_thread(secrets_for_task, task)
     return await run_browser_check(task, secrets=secrets)

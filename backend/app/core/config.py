@@ -57,6 +57,16 @@ class Settings(BaseSettings):
     # SSRF-защита: по умолчанию мониторы не могут вести во внутреннюю сеть.
     # on-prem-инсталляции ставят true, чтобы мониторить внутренние сервисы.
     allow_private_targets: bool = False
+    # Браузерные сценарии выключены по умолчанию: у этого воркера НЕТ пиннинга
+    # адреса. validate_public_url проверяет имя, а Chromium резолвит его заново
+    # и сам — проверенный адрес передать ему нечем, поэтому DNS rebinding на
+    # шаге goto срабатывает детерминированно, а редиректы и click браузер
+    # обрабатывает вообще мимо проверки. Через assert_text по page.content()
+    # это даёт чтение внутренних страниц, а не слепой запрос.
+    # Включать после CDP-перехвата или egress-прокси для воркера (см.
+    # .claude/knowledge/04-security.md), либо на on-prem, где обращения
+    # во внутреннюю сеть легитимны.
+    browser_monitors_enabled: bool = False
     telegram_api_base: str = "https://api.telegram.org"
     # VAPID-ключи для web push (python -m app.tools.vapid); если не заданы — push отключён
     vapid_public_key: str | None = None

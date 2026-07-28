@@ -431,6 +431,8 @@ class MetaRead(BaseModel):
     deployment_mode: Literal["team", "enterprise"]
     limits: DeploymentLimits | None = None
     email_enabled: bool = False
+    # браузерные сценарии выключены — фронтенд не предлагает этот тип монитора
+    browser_monitors_enabled: bool = False
 
 
 class PlanRead(BaseModel):

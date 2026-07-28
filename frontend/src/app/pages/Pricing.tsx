@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import { Check } from 'lucide-react';
 import { getPublicPlans, type Plan } from '../api';
 import { plural, useTexts } from '../i18n';
+import { useMeta } from '../meta-context';
 
 function formatRub(kopeks: number): string {
   return `${Math.round(kopeks / 100).toLocaleString('ru-RU')} ₽`;
@@ -15,6 +16,9 @@ function formatInterval(seconds: number, lang: 'ru' | 'en'): string {
 }
 
 export default function Pricing() {
+  // meta ещё не загружена — строку про сценарии не показываем: лучше не обещать,
+  // чем пообещать и вернуть 403
+  const browserEnabled = useMeta()?.browser_monitors_enabled ?? false;
   const [plans, setPlans] = useState<Plan[]>([]);
   const [error, setError] = useState(false);
   const t = useTexts({
@@ -103,7 +107,9 @@ export default function Pricing() {
           const perks = [
             t.monitors(plan.max_monitors),
             t.interval(formatInterval(plan.min_interval_seconds, t.lang)),
-            t.browser(plan.max_browser_monitors),
+            // сценарии могут быть выключены на инсталляции — тогда строку про них
+            // не показываем: обещать в прайсе то, что вернёт 403, нельзя
+            ...(browserEnabled ? [t.browser(plan.max_browser_monitors)] : []),
             t.members(plan.max_members),
             t.retention(plan.retention_days),
             t.alerts,
