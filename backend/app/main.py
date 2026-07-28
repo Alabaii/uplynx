@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import time
 
 from datetime import datetime, timedelta, timezone
@@ -105,9 +106,20 @@ def metrics() -> Response:
 
 
 @app.get("/ready")
-def ready() -> dict[str, str]:
-    check_database()
-    return {"status": "ready"}
+def ready() -> JSONResponse:
+    """Readiness: 503, если БД недоступна — на это вешается внешний проб.
+
+    Именно 503, а не всплывшее исключение: 500 от readiness неотличим от
+    обычной ошибки приложения, и в логах/алертах недоступность зависимости
+    выглядела бы багом. Текст исключения наружу не отдаём — там строка
+    подключения.
+    """
+    try:
+        check_database()
+    except Exception:  # noqa: BLE001 — любая ошибка подключения means "не готов"
+        logging.getLogger(__name__).exception("readiness check failed")
+        return JSONResponse(status_code=503, content={"status": "not ready"})
+    return JSONResponse(content={"status": "ready"})
 
 
 @app.get("/health/scheduler")

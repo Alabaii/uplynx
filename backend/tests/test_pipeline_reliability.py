@@ -230,3 +230,26 @@ def _settings_with_http_budget(budget: int = 1):
     settings = get_settings().model_copy()
     object.__setattr__(settings, "http_check_budget_seconds", budget)
     return settings
+
+
+def test_ready_returns_503_when_database_is_unreachable(client, monkeypatch):
+    """Readiness обязан краснеть при недоступной БД, и именно 503, а не 500.
+
+    500 от readiness неотличим от обычной ошибки приложения: в алертах
+    недоступность зависимости выглядела бы багом сервиса.
+    """
+    def broken():
+        raise OSError("connection refused")
+
+    monkeypatch.setattr("app.main.check_database", broken)
+    response = client.get("/ready")
+    assert response.status_code == 503
+    assert response.json() == {"status": "not ready"}
+    # строка подключения наружу не уходит
+    assert "connection refused" not in response.text
+
+
+def test_ready_returns_200_when_database_is_reachable(client):
+    response = client.get("/ready")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready"}
