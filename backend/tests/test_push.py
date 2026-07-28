@@ -293,3 +293,54 @@ def test_send_web_push_bounds_the_wait(monkeypatch):
     webpush.send_web_push(_subscription(), "t", "b")
     assert captured["timeout"] == webpush.PUSH_TIMEOUT_SECONDS
     assert captured["timeout"] > 0
+
+
+def test_subscribe_rejects_invalid_port(client, auth_headers, monkeypatch):
+    """Такую подписку заводил любой участник, и она валила рассылку всей организации."""
+    enable_push(monkeypatch)
+    response = client.post(
+        "/api/v1/push/subscribe",
+        json={"endpoint": "https://push.example.com:99999/x", "keys": {"p256dh": "k", "auth": "a"}},
+        headers=auth_headers,
+    )
+    assert response.status_code == 400
+
+
+def test_one_broken_subscription_does_not_stop_the_rest(monkeypatch, db_session_factory):
+    """Негодная строка не должна отменять доставку остальным подписчикам."""
+    from app.models import Monitor, Organization, User
+    from app.workers import base
+
+    monkeypatch.setattr(base, "SessionLocal", db_session_factory)
+    monkeypatch.setattr(base, "push_enabled", lambda: True)
+
+    with db_session_factory() as db:
+        user = User(email="push@example.com", hashed_password="x")
+        org = Organization(name="T", slug="pushorg")
+        db.add_all([user, org])
+        db.flush()
+        monitor = Monitor(
+            user_id=user.id, org_id=org.id, slug="m", name="M", type="http",
+            status="down", url="https://example.com", interval=60, config_json={}, enabled=True,
+        )
+        db.add(monitor)
+        for endpoint in ("https://broken.example.com/1", "https://good.example.com/2"):
+            db.add(PushSubscription(org_id=org.id, user_id=user.id, endpoint=endpoint, p256dh="k", auth="a"))
+        db.commit()
+        monitor_id, org_id = monitor.id, org.id
+
+    delivered = []
+
+    def flaky(subscription, *args, **kwargs):
+        if "broken" in subscription.endpoint:
+            raise ValueError("Port out of range 0-65535")
+        delivered.append(subscription.endpoint)
+        return True
+
+    monkeypatch.setattr(base, "send_web_push", flaky)
+
+    with db_session_factory() as db:
+        monitor = db.get(Monitor, monitor_id)
+        base.send_push_alerts(monitor, "down", "body")
+
+    assert delivered == ["https://good.example.com/2"]

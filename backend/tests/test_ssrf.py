@@ -286,3 +286,21 @@ def test_api_rejects_private_url_via_config_upload(client, auth_headers):
     }
     response = client.post("/api/v1/config", json=config, headers=auth_headers)
     assert response.status_code == 400
+
+
+# --- негодный порт в URL -------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("url", ["https://example.com:99999/p", "https://example.com:abc/p"])
+def test_invalid_port_is_blocked_not_crashed(url):
+    """urlparse().port бросает ValueError, а не возвращает None.
+
+    Раньше это исключение улетало мимо BlockedTargetError, и вызывающие его не
+    ловили: одна push-подписка на такой адрес валила рассылку всей организации,
+    не доходя до остальных подписок. Отказ должен быть обычным блоком — и на
+    пути API (без резолва), и в воркере.
+    """
+    with pytest.raises(BlockedTargetError):
+        validate_public_url(url, resolve=False)
+    with pytest.raises(BlockedTargetError):
+        validate_public_url(url)

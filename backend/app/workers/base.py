@@ -68,6 +68,11 @@ def send_push_alerts(monitor: Monitor, scope: str, body: str) -> None:
             except PushSubscriptionGone:
                 db.delete(subscription)
                 removed += 1
+            except Exception:  # noqa: BLE001
+                # одна негодная подписка не должна отменять рассылку остальным:
+                # строку заводит любой участник, а увидеть и удалить её в UI
+                # нельзя — список подписок наружу не отдаётся
+                logger.exception("failed to send push to subscription %s", subscription.id)
         if removed:
             db.commit()
     if sent or removed:
