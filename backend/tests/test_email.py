@@ -6,9 +6,10 @@ from app.services.email import email_enabled, send_email
 
 
 class FakeSMTP:
-    def __init__(self, host, port):
+    def __init__(self, host, port, timeout=None):
         self.host = host
         self.port = port
+        self.timeout = timeout
         self.starttls_called = False
         self.login_args = None
         self.sent = []
@@ -47,8 +48,8 @@ def configure_smtp(monkeypatch, **overrides):
 def install_fake_smtp(monkeypatch, cls=FakeSMTP):
     created = []
 
-    def factory(host, port):
-        instance = cls(host, port)
+    def factory(host, port, timeout=None):
+        instance = cls(host, port, timeout=timeout)
         created.append(instance)
         return instance
 
@@ -181,3 +182,33 @@ def test_added_member_gets_email_and_failure_does_not_break_add(client, db_sessi
         "/api/v1/orgs/current/members", json={"email": "second@example.com", "role": "member"}, headers=owner
     )
     assert added.status_code == 201
+
+
+def test_smtp_connection_is_bounded_by_timeout(monkeypatch):
+    """Молчащий SMTP-хост не должен занимать поток из общего пула бесконечно."""
+    from app.core.config import get_settings
+    from app.services import email as email_service
+
+    monkeypatch.setattr(get_settings(), "smtp_host", "smtp.example.com")
+    captured = {}
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout=None):
+            captured["timeout"] = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def starttls(self, context=None):
+            return None
+
+        def send_message(self, message):
+            return None
+
+    monkeypatch.setattr(email_service.smtplib, "SMTP", FakeSMTP)
+    assert email_service.send_email("to@example.com", "s", "b") is True
+    assert captured["timeout"] == email_service.SMTP_TIMEOUT_SECONDS
+    assert captured["timeout"] > 0

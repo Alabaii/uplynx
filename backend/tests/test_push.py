@@ -232,3 +232,64 @@ def test_send_web_push_refuses_non_https_row(monkeypatch):
     assert webpush.send_web_push(_subscription("http://push.example.com/abc"), "t", "b") is False
     assert called == []
     assert resolved == []  # до резолва дело даже не доходит
+
+
+def test_pinned_session_does_not_follow_redirects():
+    """Редирект уводит на непроверенный адрес, а по http — мимо приколотого адаптера.
+
+    Поднимаем два локальных сервера: первый отвечает 302 на второй. Если сессия
+    пойдёт по редиректу, она прочитает тело «внутреннего» сервиса.
+    """
+    import http.server
+    import socketserver
+    import threading
+
+    from app.services.webpush import pinned_session
+
+    class Secret(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"INTERNAL-SECRET")
+
+        def log_message(self, *args):
+            pass
+
+    secret_server = socketserver.TCPServer(("127.0.0.1", 0), Secret)
+    secret_port = secret_server.server_address[1]
+
+    class Redirector(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(302)
+            self.send_header("Location", f"http://127.0.0.1:{secret_port}/")
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    redirector = socketserver.TCPServer(("127.0.0.1", 0), Redirector)
+    threading.Thread(target=secret_server.serve_forever, daemon=True).start()
+    threading.Thread(target=redirector.serve_forever, daemon=True).start()
+    try:
+        response = pinned_session("203.0.113.1").get(
+            f"http://127.0.0.1:{redirector.server_address[1]}/", timeout=5
+        )
+        assert response.status_code == 302
+        assert response.history == []
+        assert b"INTERNAL-SECRET" not in response.content
+    finally:
+        redirector.shutdown()
+        secret_server.shutdown()
+
+
+def test_send_web_push_bounds_the_wait(monkeypatch):
+    """Без таймаута молчащий push-хост исчерпывал пул потоков и останавливал воркер."""
+    from app.services import webpush
+
+    monkeypatch.setattr(webpush, "resolve_public_address", lambda *a, **kw: "93.184.216.34")
+    captured = {}
+    monkeypatch.setattr(webpush, "webpush", lambda **kw: captured.update(kw))
+
+    webpush.send_web_push(_subscription(), "t", "b")
+    assert captured["timeout"] == webpush.PUSH_TIMEOUT_SECONDS
+    assert captured["timeout"] > 0

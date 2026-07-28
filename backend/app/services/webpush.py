@@ -15,6 +15,14 @@ from app.models import PushSubscription
 
 logger = logging.getLogger(__name__)
 
+# Потолок ожидания ответа push-сервиса. Без него pywebpush передаёт в requests
+# timeout=None, то есть ждёт вечно. Отправка идёт через asyncio.to_thread, а его
+# пул потоков (min(32, cpu+4) — на двух ядрах это шесть) общий с записью
+# результатов проверок: несколько подписок на молчащий хост исчерпывали пул, и
+# воркер переставал сохранять результаты и подтверждать сообщения. Адрес хоста
+# задаёт арендатор, так что это управляемая им остановка проверок всей платформы.
+PUSH_TIMEOUT_SECONDS = 10
+
 
 class PushSubscriptionGone(Exception):
     """Push-сервис ответил 404/410 — подписка мертва, её нужно удалить из БД."""
@@ -61,10 +69,31 @@ def pinned_session(address: str) -> requests.Session:
                 num_pools=connections, maxsize=maxsize, block=block, **kwargs
             )
 
-    session = requests.Session()
+    session = _NoRedirectSession()
     session.trust_env = False
     session.mount("https://", _PinnedAdapter())
     return session
+
+
+class _NoRedirectSession(requests.Session):
+    """Сессия, которая не ходит по редиректам.
+
+    Пиннинг действует на адрес, проверенный ДО запроса. Редирект уводит на
+    адрес, который никто не проверял, а `Location: http://...` — ещё и мимо
+    приколотого адаптера: он навешен на https, а http обслуживает дефолтный,
+    с повторным резолвом имени. Проверено: 302 на внутренний адрес возвращал
+    тело внутреннего сервиса.
+
+    У мониторов цепочка редиректов обрабатывается вручную с перепроверкой
+    каждого хопа (services/checks.py). Здесь она не нужна вовсе: endpoint
+    выдаёт сам push-сервис, перенаправлять ему некуда. pywebpush поднимает
+    WebPushException на любой ответ больше 202, поэтому оставшийся 3xx станет
+    обычной ошибкой доставки.
+    """
+
+    def resolve_redirects(self, resp, req, **kwargs):  # type: ignore[no-untyped-def]
+        logger.warning("push service replied with a redirect (%s); not following it", resp.status_code)
+        return iter(())
 
 
 def push_enabled() -> bool:
@@ -99,6 +128,7 @@ def send_web_push(subscription: PushSubscription, title: str, body: str, url: st
             data=json.dumps({"title": title, "body": body, "url": url}),
             vapid_private_key=settings.vapid_private_key,
             vapid_claims={"sub": settings.vapid_subject},
+            timeout=PUSH_TIMEOUT_SECONDS,
             # address=None — проверка снята allow_private_targets (on-prem):
             # там push-сервис может быть и внутренним, пиннинг не нужен
             requests_session=pinned_session(address) if address else None,

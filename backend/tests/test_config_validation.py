@@ -33,8 +33,8 @@ def test_smtp_starttls_verifies_certificate(monkeypatch):
     used = {}
 
     class FakeSMTP:
-        def __init__(self, host, port):
-            pass
+        def __init__(self, host, port, timeout=None):
+            used["timeout"] = timeout
 
         def __enter__(self):
             return self

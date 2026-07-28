@@ -7,6 +7,9 @@ from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+# потолок ожидания SMTP-хоста (соединение и каждая операция)
+SMTP_TIMEOUT_SECONDS = 15
+
 
 def email_enabled() -> bool:
     return bool(get_settings().smtp_host)
@@ -29,7 +32,10 @@ def send_email(to: str, subject: str, body: str) -> bool:
     # из-за чего ссылка сброса пароля ломается в части почтовых клиентов
     message.set_content(body, cte="8bit")
     try:
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as smtp:
+        # timeout обязателен: smtplib без него ждёт молчащий хост бесконечно, а
+        # отправка идёт через asyncio.to_thread — пул потоков общий с записью
+        # результатов проверок, и зависшая рассылка останавливает воркер целиком
+        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=SMTP_TIMEOUT_SECONDS) as smtp:
             if settings.smtp_starttls:
                 # без явного контекста smtplib берёт тот, что не проверяет
                 # сертификат и имя хоста: логин SMTP и ссылка сброса пароля
