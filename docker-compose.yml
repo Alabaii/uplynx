@@ -95,6 +95,9 @@ services:
       # SSRF-защита: false — мониторы не могут вести во внутреннюю сеть (SaaS);
       # true — разрешить приватные адреса (on-prem мониторинг внутренних сервисов)
       ALLOW_PRIVATE_TARGETS: ${ALLOW_PRIVATE_TARGETS:-false}
+      # браузерные сценарии: у их воркера нет пиннинга адреса (Chromium резолвит
+      # имя сам), поэтому по умолчанию выключены — см. 04-security.md
+      BROWSER_MONITORS_ENABLED: ${BROWSER_MONITORS_ENABLED:-false}
       # Sentry DSN; пусто — отключён
       SENTRY_DSN: ${SENTRY_DSN:-}
       # VAPID-ключи для web push (сгенерировать: python -m app.tools.vapid); пусто — push отключён
@@ -140,6 +143,8 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-change-me}
       # нужен шедулеру: в enterprise он применяет мин. интервал тарифа на лету
       DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-team}
+      # шедулер гасит включённые browser-мониторы, когда сценарии выключены
+      BROWSER_MONITORS_ENABLED: ${BROWSER_MONITORS_ENABLED:-false}
       SENTRY_DSN: ${SENTRY_DSN:-}
       METRICS_PORT: "9101"
     # /metrics только на localhost хоста — наружу не публикуется
@@ -212,6 +217,8 @@ services:
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
       # браузерных проверок одновременно — каждая держит свой Chromium (память!)
       BROWSER_CONCURRENCY: ${BROWSER_CONCURRENCY:-2}
+      # выключено — воркер не поднимает Chromium даже на задачу из очереди
+      BROWSER_MONITORS_ENABLED: ${BROWSER_MONITORS_ENABLED:-false}
       CHECK_TIMEOUT_SECONDS: ${CHECK_TIMEOUT_SECONDS:-30}
       # VAPID-ключи для web push (сгенерировать: python -m app.tools.vapid); пусто — push отключён
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}

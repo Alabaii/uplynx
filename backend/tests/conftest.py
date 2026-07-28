@@ -18,6 +18,20 @@ from app.main import app
 
 
 @pytest.fixture(autouse=True)
+def enable_browser_monitors(monkeypatch):
+    """В тестах браузерные сценарии включены — иначе не проверить сам функционал.
+
+    В проде BROWSER_MONITORS_ENABLED выключен: у воркера нет пиннинга адреса.
+    Это операционный переключатель, а не изменение поведения сценариев, поэтому
+    тесты функционала работают при включённом, а сам гейт проверяется отдельно
+    (test_browser_monitor_gate.py), где фикстура переопределяется.
+    """
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "browser_monitors_enabled", True)
+
+
+@pytest.fixture(autouse=True)
 def reset_status_page_cache():
     from app.api.v1.endpoints.status import _cache
 

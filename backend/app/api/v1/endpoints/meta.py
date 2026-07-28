@@ -13,4 +13,9 @@ def meta() -> MetaRead:
     limits = None
     if settings.deployment_mode == "team":
         limits = DeploymentLimits(max_users=settings.team_max_users, max_monitors=settings.team_max_monitors)
-    return MetaRead(deployment_mode=settings.deployment_mode, limits=limits, email_enabled=email_enabled())
+    return MetaRead(
+        deployment_mode=settings.deployment_mode,
+        limits=limits,
+        email_enabled=email_enabled(),
+        browser_monitors_enabled=settings.browser_monitors_enabled,
+    )

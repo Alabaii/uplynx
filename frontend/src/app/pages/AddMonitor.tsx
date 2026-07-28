@@ -7,6 +7,7 @@ import { ApiError, createMonitor, type MonitorType } from '../api';
 import { Input } from '../components/ui/Input';
 import { cn } from '../utils/cn';
 import { useTexts } from '../i18n';
+import { useMeta } from '../meta-context';
 
 type BrowserStepAction = 'goto' | 'click' | 'type' | 'assert_text' | 'wait_for' | 'assert_url';
 
@@ -119,6 +120,8 @@ export default function AddMonitor() {
   });
   const stepLabels = t.stepLabels;
   const navigate = useNavigate();
+  // meta ещё не загружена — не мигаем переключателем, показываем как выключённый
+  const browserEnabled = useMeta()?.browser_monitors_enabled ?? false;
   const [monitorType, setMonitorType] = useState<MonitorType>('http');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
@@ -236,9 +239,13 @@ export default function AddMonitor() {
               <TypeToggle active={monitorType === 'http'} onClick={() => setMonitorType('http')}>
                 {t.typeHttp}
               </TypeToggle>
-              <TypeToggle active={monitorType === 'browser'} onClick={() => setMonitorType('browser')}>
-                {t.typeBrowser}
-              </TypeToggle>
+              {/* сценарии могут быть выключены на инсталляции — тогда создание
+                  всё равно вернёт 403, и переключатель показывал бы тупик */}
+              {browserEnabled && (
+                <TypeToggle active={monitorType === 'browser'} onClick={() => setMonitorType('browser')}>
+                  {t.typeBrowser}
+                </TypeToggle>
+              )}
             </div>
           </div>
         </CardHeader>

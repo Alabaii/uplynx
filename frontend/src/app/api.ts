@@ -248,6 +248,7 @@ export type Meta = {
   deployment_mode: DeploymentMode;
   limits: DeploymentLimits | null;
   email_enabled: boolean;
+  browser_monitors_enabled: boolean;
 };
 
 export function getMeta() {
