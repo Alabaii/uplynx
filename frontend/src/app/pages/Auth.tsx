@@ -7,10 +7,14 @@ import { Input } from '../components/ui/Input';
 import { startSession } from '../auth';
 import { ApiError, login, register, resendVerification } from '../api';
 import { LanguageSwitcher, useTexts } from '../i18n';
+import { useMeta } from '../meta-context';
 
 const featureIcons = [Workflow, Users, ShieldCheck];
 
 export default function AuthPage() {
+  // страница — цель CTA с лендинга и прайса и тоже перечисляет возможности:
+  // обещать здесь сценарии, которые вернут 403, нельзя
+  const browserEnabled = useMeta()?.browser_monitors_enabled ?? false;
   const t = useTexts({
     ru: {
       features: [
@@ -39,6 +43,9 @@ export default function AuthPage() {
       heroTitle: 'Управляйте мониторами от конфига до инцидента.',
       heroDescription:
         'Мониторинг сайтов на основе конфига: HTTP- и браузерные проверки, алерты в Telegram и устанавливаемый PWA-дашборд. Редактируйте мониторы визуально или загружайте YAML-конфиг — они всегда синхронизированы.',
+      // вариант без упоминания сценариев — когда они выключены на инсталляции
+      heroDescriptionHttpOnly:
+        'Мониторинг сайтов на основе конфига: HTTP-проверки, алерты в Telegram и устанавливаемый PWA-дашборд. Редактируйте мониторы визуально или загружайте YAML-конфиг — они всегда синхронизированы.',
       registerKicker: 'Доступ к рабочему пространству',
       loginKicker: 'Вход для команды',
       registerDescription:
@@ -83,6 +90,8 @@ export default function AuthPage() {
       heroTitle: 'Operate monitors from config to incident.',
       heroDescription:
         'Config-driven website monitoring with HTTP and browser checks, Telegram alerts, and an installable PWA dashboard. Edit monitors visually or upload a YAML config — both stay in sync.',
+      heroDescriptionHttpOnly:
+        'Config-driven website monitoring with HTTP checks, Telegram alerts, and an installable PWA dashboard. Edit monitors visually or upload a YAML config — both stay in sync.',
       registerKicker: 'Create workspace access',
       loginKicker: 'Team sign-in',
       registerDescription:
@@ -189,7 +198,7 @@ export default function AuthPage() {
           </div>
 
           <p className="max-w-2xl text-base leading-6 text-muted-foreground">
-            {t.heroDescription}
+            {browserEnabled ? t.heroDescription : t.heroDescriptionHttpOnly}
           </p>
 
           <div className="mt-8 grid gap-4 md:grid-cols-3">

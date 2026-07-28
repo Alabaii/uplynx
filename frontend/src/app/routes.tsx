@@ -46,8 +46,10 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 export const router = createBrowserRouter([
-  { path: '/login', element: withSuspense(<AuthPage />) },
-  { path: '/register', element: withSuspense(<AuthPage />) },
+  // MetaProvider и здесь: страница регистрации — цель CTA с лендинга и прайса
+  // и тоже перечисляет возможности, часть которых инсталляция может не отдавать
+  { path: '/login', element: <MetaProvider>{withSuspense(<AuthPage />)}</MetaProvider> },
+  { path: '/register', element: <MetaProvider>{withSuspense(<AuthPage />)}</MetaProvider> },
   { path: '/forgot-password', element: withSuspense(<ForgotPasswordPage />) },
   { path: '/reset-password', element: withSuspense(<ResetPasswordPage />) },
   { path: '/verify-email', element: withSuspense(<VerifyEmailPage />) },

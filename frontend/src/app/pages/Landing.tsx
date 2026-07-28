@@ -27,6 +27,11 @@ export default function Landing() {
         'Uplynx проверяет ваши сайты, API и браузерные сценарии, открывает инциденты ' +
         'при сбоях и мгновенно сообщает в Telegram, push или на почту. ' +
         'Публичная статус-страница покажет клиентам, что у вас всё под контролем.',
+      // вариант без упоминания сценариев — когда они выключены на инсталляции
+      heroTextHttpOnly:
+        'Uplynx проверяет ваши сайты и API, открывает инциденты ' +
+        'при сбоях и мгновенно сообщает в Telegram, push или на почту. ' +
+        'Публичная статус-страница покажет клиентам, что у вас всё под контролем.',
       ctaStart: 'Начать бесплатно',
       ctaPricing: 'Смотреть тарифы',
       featuresTitle: 'Всё, что нужно для спокойного сна',
@@ -75,6 +80,10 @@ export default function Landing() {
       heroTitle: 'Website and service monitoring with alerts in a minute',
       heroText:
         'Uplynx checks your websites, APIs and browser flows, opens incidents on failures ' +
+        'and instantly notifies you via Telegram, push or email. ' +
+        'A public status page shows your customers everything is under control.',
+      heroTextHttpOnly:
+        'Uplynx checks your websites and APIs, opens incidents on failures ' +
         'and instantly notifies you via Telegram, push or email. ' +
         'A public status page shows your customers everything is under control.',
       ctaStart: 'Start for free',
@@ -148,7 +157,9 @@ export default function Landing() {
           <Activity className="h-7 w-7" />
         </div>
         <h1 className="mx-auto max-w-3xl text-3xl font-semibold leading-tight sm:text-4xl">{t.heroTitle}</h1>
-        <p className="mx-auto mt-5 max-w-2xl text-base leading-6 text-muted-foreground">{t.heroText}</p>
+        <p className="mx-auto mt-5 max-w-2xl text-base leading-6 text-muted-foreground">
+          {browserEnabled ? t.heroText : t.heroTextHttpOnly}
+        </p>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
           <Link
             to="/register"
