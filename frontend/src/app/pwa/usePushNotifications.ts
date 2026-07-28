@@ -27,6 +27,28 @@ async function getServiceWorkerRegistration() {
   return (await navigator.serviceWorker.getRegistration()) ?? null;
 }
 
+export async function releasePushSubscription() {
+  // Подписка привязана к организации, а не к устройству: строка в БД адресуется
+  // по org_id, и уведомления с именами мониторов продолжают приходить сюда после
+  // выхода. На общем устройстве их получал бы следующий вошедший — по каналу,
+  // который вообще не проходит через авторизацию. Поэтому логаут снимает подписку
+  // и в браузере, и на сервере; серверный вызов идёт ПЕРВЫМ, пока токен ещё жив.
+  try {
+    const registration = await getServiceWorkerRegistration();
+    const subscription = registration ? await registration.pushManager.getSubscription() : null;
+
+    if (!subscription) return;
+
+    await unsubscribePush(subscription.endpoint).catch(() => {
+      // сессия могла уже протухнуть — локальную отписку это отменять не должно:
+      // без неё устройство продолжит принимать чужие уведомления
+    });
+    await subscription.unsubscribe();
+  } catch {
+    // выходу из аккаунта сбой отписки мешать не должен
+  }
+}
+
 export function usePushNotifications() {
   const [status, setStatus] = useState<PushStatus>('loading');
   const [isBusy, setIsBusy] = useState(false);

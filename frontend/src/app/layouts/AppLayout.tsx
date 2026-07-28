@@ -11,6 +11,7 @@ import { useDeploymentMode } from '../meta-context';
 import { OrgSwitcher } from './OrgSwitcher';
 import { navLabel, navigation } from './navigation';
 import { usePWA } from '../pwa/usePWA';
+import { releasePushSubscription } from '../pwa/usePushNotifications';
 import { cn } from '../utils/cn';
 
 // нижняя навигация на мобиле — ровно 5 пунктов в grid-cols-5; Incidents и Maintenance доступны
@@ -99,7 +100,11 @@ export function AppLayout() {
     };
   }, []);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // push-подписка принадлежит организации, а не устройству: без снятия следующий
+    // вошедший на этом устройстве продолжал бы получать уведомления предыдущего
+    // воркспейса. Снимаем ДО очистки сессии — серверной отписке нужен живой токен
+    await releasePushSubscription();
     // отзываем refresh-сессию на сервере; сбой не мешает локальному выходу
     logout().catch(() => {});
     clearSession();
