@@ -148,7 +148,10 @@ async function request<T>(path: string, options: RequestOptions = {}, isRetry = 
       return request<T>(path, options, true);
     }
 
-    clearSession();
+    // ждём очистки офлайн-кэша: следом идёт полная навигация, и незавершённое
+    // удаление оборвалось бы вместе с документом, оставив данные организации
+    // на устройстве
+    await clearSession();
 
     if (!window.location.pathname.startsWith('/login')) {
       window.location.assign('/login');
