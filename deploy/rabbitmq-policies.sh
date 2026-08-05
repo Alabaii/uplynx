@@ -31,12 +31,24 @@ API="http://${RABBITMQ_HOST}:${RABBITMQ_MGMT_PORT}/api"
 AUTH="${RABBITMQ_USER}:${RABBITMQ_PASSWORD}"
 
 # healthcheck брокера (rabbitmq-diagnostics ping) зеленеет раньше, чем поднимается
-# management-плагин, поэтому depends_on недостаточно — ждём сам API
+# management-плагин, поэтому depends_on недостаточно — ждём сам API.
+# Код ответа разбираем: 401 ожиданием не лечится, и ждать его молча — значит
+# минуту спустя сообщить не о той причине. Пароль применяется только при первой
+# инициализации тома, поэтому на живом брокере со старым томом RABBITMQ_PASSWORD
+# из окружения расходится с тем, что в mnesia — это самый вероятный отказ здесь.
 attempt=0
-until curl -fsS -u "$AUTH" "$API/overview" >/dev/null 2>&1; do
+while :; do
+  code=$(curl -sS -o /dev/null -w '%{http_code}' -u "$AUTH" "$API/overview" 2>/dev/null || echo 000)
+  case "$code" in
+    200) break ;;
+    401)
+      echo "брокер отверг логин ${RABBITMQ_USER}: RABBITMQ_USER/RABBITMQ_PASSWORD не совпадают с учёткой в томе брокера" >&2
+      exit 1
+      ;;
+  esac
   attempt=$((attempt + 1))
   if [ "$attempt" -ge 30 ]; then
-    echo "management API брокера не ответил за 60с" >&2
+    echo "management API брокера не ответил за 60с (последний код: ${code})" >&2
     exit 1
   fi
   sleep 2
