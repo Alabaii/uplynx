@@ -449,6 +449,26 @@ export function createMonitor(payload: {
   });
 }
 
+export function updateMonitor(
+  id: string,
+  payload: {
+    name?: string;
+    url?: string;
+    interval?: number;
+    // бэкенд заменяет expected целиком, поэтому объект собирается полностью
+    expected?: { status?: number; body_contains?: string; response_time_ms?: number };
+    enabled?: boolean;
+    confirmations?: number;
+    // выключение — это null: схема принимает только >= 1, а ноль отвергает 422-й
+    renotify_interval_minutes?: number | null;
+  }
+) {
+  return request<Monitor>(`/monitors/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: payload,
+  });
+}
+
 export function deleteMonitor(id: string) {
   return request<void>(`/monitors/${encodeURIComponent(id)}`, {
     method: 'DELETE',

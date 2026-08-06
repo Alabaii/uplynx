@@ -11,6 +11,7 @@ const ResetPasswordPage = React.lazy(() => import('./pages/ResetPassword'));
 const VerifyEmailPage = React.lazy(() => import('./pages/VerifyEmail'));
 const Dashboard = React.lazy(() => import('./pages/Dashboard'));
 const AddMonitor = React.lazy(() => import('./pages/AddMonitor'));
+const EditMonitor = React.lazy(() => import('./pages/EditMonitor'));
 const MonitorDetails = React.lazy(() => import('./pages/MonitorDetails'));
 const History = React.lazy(() => import('./pages/History'));
 const Incidents = React.lazy(() => import('./pages/Incidents'));
@@ -86,6 +87,7 @@ export const router = createBrowserRouter([
       { path: 'maintenance', element: withSuspense(<Maintenance />) },
       { path: 'monitors/new', element: withSuspense(<AddMonitor />) },
       { path: 'monitors/:id', element: withSuspense(<MonitorDetails />) },
+      { path: 'monitors/:id/edit', element: withSuspense(<EditMonitor />) },
       { path: 'monitors/:id/history', element: withSuspense(<History />) },
       { path: 'config', element: withSuspense(<ConfigEditor />) },
       { path: 'telegram', element: withSuspense(<TelegramSettings />) },
