@@ -6,6 +6,7 @@ import {
   Clock3,
   FileText,
   Globe,
+  Pencil,
   RefreshCw,
   ServerCog,
   Siren,
@@ -50,6 +51,7 @@ export default function MonitorDetails() {
       loadErrorTitle: 'Не удалось загрузить монитор',
       checkQueued: 'Проверка в очереди',
       checkNow: 'Проверить сейчас',
+      edit: 'Редактировать',
       remove: 'Удалить',
       confirmRemove: (name: string) =>
         `Удалить монитор «${name}»? Он исчезнет из дашборда и перестанет проверяться. История сохранится, но вернуть монитор из интерфейса будет нельзя.`,
@@ -109,6 +111,7 @@ export default function MonitorDetails() {
       loadErrorTitle: 'Unable to load monitor',
       checkQueued: 'Check queued',
       checkNow: 'Check now',
+      edit: 'Edit',
       remove: 'Delete',
       confirmRemove: (name: string) =>
         `Delete monitor "${name}"? It disappears from the dashboard and stops being checked. History is kept, but the monitor cannot be restored from the UI.`,
@@ -342,6 +345,14 @@ export default function MonitorDetails() {
             >
               {t.viewHistory}
               <ArrowRight className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate(`/monitors/${monitor.id}/edit`)}
+              className="inline-flex items-center gap-2 rounded-lg border border-secondary bg-card px-3 py-1.5 text-sm font-medium text-primary transition-colors hover:border-border"
+            >
+              <Pencil className="h-4 w-4" />
+              {t.edit}
             </button>
             <button
               type="button"
