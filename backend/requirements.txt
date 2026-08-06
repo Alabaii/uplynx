@@ -7,7 +7,7 @@ uvicorn[standard]==0.51.0
 SQLAlchemy==2.0.51
 alembic==1.18.5
 psycopg2-binary==2.9.12
-pydantic-settings==2.7.1
+pydantic-settings==2.14.2
 email-validator==2.3.0
 python-jose[cryptography]==3.5.0
 # прямое использование bcrypt (passlib удалён: не поддерживается и несовместим с bcrypt>=4.1)
