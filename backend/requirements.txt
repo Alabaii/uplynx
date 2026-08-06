@@ -16,7 +16,7 @@ bcrypt==5.0.0
 # 50.0.0 — в 49.0.0 PYSEC-2026-3552, на нём падает гейт pip-audit
 cryptography==50.0.0
 PyYAML==6.0.3
-aio-pika==9.5.4
+aio-pika==10.0.1
 pika==1.3.2
 httpx==0.28.1
 pywebpush==2.3.0
