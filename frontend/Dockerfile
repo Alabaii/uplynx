@@ -2,7 +2,7 @@
 # с проксированием API на backend (same-origin, CORS не нужен).
 # та же мажорная версия, что в CI и в dev-compose: прод не должен
 # собираться на рантайме, который нигде не проверяется
-FROM node:22-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci

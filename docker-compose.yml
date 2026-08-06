@@ -38,9 +38,6 @@ services:
       # без тома пересоздание контейнера (обычное `up --build`) стирает mnesia:
       # уходят durable-очереди с неразобранными задачами, содержимое DLQ и политики
       - rabbitmq-data:/var/lib/rabbitmq
-      # политика хранения для *.dlq — применяется вручную после первого запуска:
-      # docker compose exec rabbitmq sh /rabbitmq-policies.sh
-      - ./deploy/rabbitmq-policies.sh:/rabbitmq-policies.sh:ro
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -50,6 +47,26 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # Политику хранения DLQ раньше применяли руками после каждого нового тома
+  # брокера — про этот шаг легко забыть, и тогда мёртвые сообщения копятся без
+  # TTL. Теперь это одноразовый шаг стека, как migrate: PUT политики идемпотентен,
+  # повтор на каждом старте безвреден. Стартовать остальным он не мешает —
+  # никто его завершения не ждёт.
+  rabbitmq-init:
+    image: curlimages/curl:8.11.1
+    entrypoint: ["sh", "/rabbitmq-policies.sh"]
+    environment:
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      DLQ_MESSAGE_TTL_MS: ${DLQ_MESSAGE_TTL_MS:-604800000}
+      DLQ_MAX_LENGTH: ${DLQ_MAX_LENGTH:-50000}
+    volumes:
+      - ./deploy/rabbitmq-policies.sh:/rabbitmq-policies.sh:ro
+    restart: "no"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
 
   # Миграции отдельным одноразовым шагом, а не внутри шедулера. Раньше их гонял
   # шедулер, а он ждал backend (condition: service_started) — то есть API уже
