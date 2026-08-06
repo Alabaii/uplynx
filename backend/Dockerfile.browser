@@ -1,7 +1,7 @@
 # Отдельный образ для browser-воркера: официальная база Playwright
 # уже содержит Chromium и системные зависимости (в python:3.12-slim
 # `playwright install --with-deps` ломается на переименованных пакетах Debian).
-FROM mcr.microsoft.com/playwright/python:v1.61.0-noble
+FROM mcr.microsoft.com/playwright/python:v1.62.0-noble
 
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
