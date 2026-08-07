@@ -132,6 +132,11 @@ services:
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5173}
       # платформенные суперадмины (страница /admin): email через запятую; пусто — никто
       SUPERUSER_EMAILS: ${SUPERUSER_EMAILS:-}
+      # Базовый адрес Bot API. Меняется, когда api.telegram.org недоступен с
+      # хоста (закрыт маршрутом у провайдера): указывайте свой reverse-proxy,
+      # тогда через посредника идёт ТОЛЬКО Telegram, а проверки мониторов
+      # остаются прямыми. Через прокси проходит токен бота — только свой.
+      TELEGRAM_API_BASE: ${TELEGRAM_API_BASE:-https://api.telegram.org}
     ports:
       - "8000:8000"
     restart: unless-stopped
@@ -194,6 +199,11 @@ services:
       METRICS_PORT: "9102"
       # нужен воркерам для расшифровки bot token при отправке алертов
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
+      # Базовый адрес Bot API. Меняется, когда api.telegram.org недоступен с
+      # хоста (закрыт маршрутом у провайдера): указывайте свой reverse-proxy,
+      # тогда через посредника идёт ТОЛЬКО Telegram, а проверки мониторов
+      # остаются прямыми. Через прокси проходит токен бота — только свой.
+      TELEGRAM_API_BASE: ${TELEGRAM_API_BASE:-https://api.telegram.org}
       # VAPID-ключи для web push (сгенерировать: python -m app.tools.vapid); пусто — push отключён
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
@@ -232,6 +242,11 @@ services:
       METRICS_PORT: "9103"
       # нужен воркерам для расшифровки bot token при отправке алертов
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
+      # Базовый адрес Bot API. Меняется, когда api.telegram.org недоступен с
+      # хоста (закрыт маршрутом у провайдера): указывайте свой reverse-proxy,
+      # тогда через посредника идёт ТОЛЬКО Telegram, а проверки мониторов
+      # остаются прямыми. Через прокси проходит токен бота — только свой.
+      TELEGRAM_API_BASE: ${TELEGRAM_API_BASE:-https://api.telegram.org}
       # браузерных проверок одновременно — каждая держит свой Chromium (память!)
       BROWSER_CONCURRENCY: ${BROWSER_CONCURRENCY:-2}
       # выключено — воркер не поднимает Chromium даже на задачу из очереди
