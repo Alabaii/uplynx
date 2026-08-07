@@ -23,6 +23,13 @@ logger = logging.getLogger(__name__)
 # задаёт арендатор, так что это управляемая им остановка проверок всей платформы.
 PUSH_TIMEOUT_SECONDS = 10
 
+# Сколько push-сервис хранит уведомление, пока устройство недоступно. Дефолт
+# pywebpush — ttl=0, то есть «доставить сейчас или выбросить»: алерт, отправленный
+# на спящий телефон, пропадал молча, и выглядело это так, будто push приходит
+# только при открытом браузере. Час — компромисс: вернувшееся в сеть устройство
+# уведомление получит, а протухшее за сутки уже никому не нужно.
+PUSH_TTL_SECONDS = 3600
+
 
 class PushSubscriptionGone(Exception):
     """Push-сервис ответил 404/410 — подписка мертва, её нужно удалить из БД."""
@@ -128,6 +135,10 @@ def send_web_push(subscription: PushSubscription, title: str, body: str, url: st
             data=json.dumps({"title": title, "body": body, "url": url}),
             vapid_private_key=settings.vapid_private_key,
             vapid_claims={"sub": settings.vapid_subject},
+            ttl=PUSH_TTL_SECONDS,
+            # Urgency: high — иначе Android и iOS вправе придержать уведомление до
+            # следующего окна пробуждения, а алерт о падении нужен сразу
+            headers={"Urgency": "high"},
             timeout=PUSH_TIMEOUT_SECONDS,
             # address=None — проверка снята allow_private_targets (on-prem):
             # там push-сервис может быть и внутренним, пиннинг не нужен
