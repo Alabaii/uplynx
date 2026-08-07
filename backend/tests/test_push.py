@@ -192,6 +192,25 @@ def test_send_web_push_skips_pinning_on_prem(monkeypatch):
     assert captured["requests_session"] is None
 
 
+def test_send_web_push_survives_unreachable_device(monkeypatch):
+    """С дефолтным ttl=0 push-сервис выбрасывает уведомление для спящего устройства.
+
+    Алерт мониторинга и приходит как раз тогда, когда телефон лежит с погашенным
+    экраном, поэтому срок хранения задаём явно, а Urgency поднимаем: иначе система
+    вправе придержать доставку до следующего окна пробуждения.
+    """
+    from app.services import webpush
+
+    monkeypatch.setattr(webpush, "resolve_public_address", lambda *a, **kw: None)
+
+    captured = {}
+    monkeypatch.setattr(webpush, "webpush", lambda **kw: captured.update(kw))
+
+    assert webpush.send_web_push(_subscription(), "t", "b") is True
+    assert captured["ttl"] == webpush.PUSH_TTL_SECONDS
+    assert captured["headers"]["Urgency"] == "high"
+
+
 def test_pinned_session_ignores_environment_proxy(monkeypatch):
     """С HTTPS_PROXY в окружении requests пошёл бы в прокси, а имя резолвил бы он.
 
