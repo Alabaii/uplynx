@@ -15,10 +15,39 @@ on-prem-инсталляции, где мониторить внутренние
 """
 import ipaddress
 import socket
+import time
 from urllib.parse import urlparse
 
 # hostname-и, которые нельзя резолвить в публичный адрес по определению
 _BLOCKED_HOSTNAMES = {"localhost"}
+
+# Промах резолва и недоступная цель приходят в воркер одинаково — gaierror, — но
+# это разные события. Резолв идёт по UDP и выполняется на КАЖДУЮ проверку (а с
+# редиректами — на каждый хоп), поэтому один потерянный пакет регулярно давал
+# down по живому сайту: самый частый ложный алерт монитора. Повторяем, когда
+# резолвер не ответил; «такого имени нет» — это ответ, а не сбой, и повтор
+# только задержал бы честный down.
+_DNS_ATTEMPTS = 3
+_DNS_RETRY_DELAY_SECONDS = 0.2
+# EAI_NODATA есть не на всех платформах (на Windows это отдельный код WSANO_DATA)
+_HOST_NOT_FOUND_ERRORS = {
+    getattr(socket, name) for name in ("EAI_NONAME", "EAI_NODATA") if hasattr(socket, name)
+}
+
+
+def _resolve_addresses(host: str, port: int | None) -> list:
+    """getaddrinfo, повторяющий временный отказ резолвера (см. _DNS_ATTEMPTS)."""
+    last_error: socket.gaierror
+    for attempt in range(_DNS_ATTEMPTS):
+        try:
+            return socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+        except socket.gaierror as exc:
+            if exc.errno in _HOST_NOT_FOUND_ERRORS:
+                raise
+            last_error = exc
+        if attempt + 1 < _DNS_ATTEMPTS:
+            time.sleep(_DNS_RETRY_DELAY_SECONDS)
+    raise last_error
 
 
 class BlockedTargetError(ValueError):
@@ -95,9 +124,13 @@ def resolve_public_address(url: str, *, allow_private: bool = False, resolve: bo
         return None
 
     try:
-        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+        infos = _resolve_addresses(host, port)
     except socket.gaierror as exc:
-        raise BlockedTargetError(f"cannot resolve host '{host}'") from exc
+        # причина уходит в check_results.error и остаётся единственной подсказкой
+        # владельцу: «no such host» — вопрос к адресу монитора, «DNS did not
+        # answer» — к резолверу воркера, а не к цели
+        reason = "no such host" if exc.errno in _HOST_NOT_FOUND_ERRORS else "DNS did not answer"
+        raise BlockedTargetError(f"cannot resolve host '{host}': {reason}") from exc
     for info in infos:
         # проверяем КАЖДЫЙ адрес: имя, часть адресов которого приватная, блокируем
         # целиком — иначе выбор адреса решал бы, сработает защита или нет
