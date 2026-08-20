@@ -15,7 +15,7 @@ def fake_getaddrinfo(mapping):
 
     def _resolver(host, port, *args, **kwargs):
         if host not in mapping:
-            raise socket.gaierror(f"unknown host {host}")
+            raise socket.gaierror(socket.EAI_NONAME, f"unknown host {host}")
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, port or 0)) for ip in mapping[host]]
 
     return _resolver
@@ -85,6 +85,62 @@ def test_unresolvable_host_blocked(monkeypatch):
     monkeypatch.setattr("socket.getaddrinfo", fake_getaddrinfo({}))
     with pytest.raises(BlockedTargetError):
         validate_public_url("http://nx.invalid", resolve=True)
+
+
+# --- временный отказ резолвера ------------------------------------------------------------------
+
+
+def counting_resolver(outcomes):
+    """Резолвер по сценарию: элемент outcomes — либо ip, либо gaierror на вызов."""
+    import socket
+
+    calls = []
+
+    def _resolver(host, port, *args, **kwargs):
+        calls.append(host)
+        outcome = outcomes[min(len(calls) - 1, len(outcomes) - 1)]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (outcome, port or 0))]
+
+    return _resolver, calls
+
+
+def test_temporary_dns_failure_is_retried(monkeypatch):
+    """Резолвер не ответил — повторяем, а не объявляем живую цель недоступной."""
+    import socket
+
+    resolver, calls = counting_resolver(
+        [socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution"), "93.184.216.34"]
+    )
+    monkeypatch.setattr("socket.getaddrinfo", resolver)
+
+    validate_public_url("http://flaky.example.com", resolve=True)
+    assert len(calls) == 2
+
+
+def test_missing_host_is_not_retried(monkeypatch):
+    """«Такого имени нет» — ответ, а не сбой: повтор только задержал бы честный down."""
+    import socket
+
+    resolver, calls = counting_resolver([socket.gaierror(socket.EAI_NONAME, "Name or service not known")])
+    monkeypatch.setattr("socket.getaddrinfo", resolver)
+
+    with pytest.raises(BlockedTargetError, match="no such host"):
+        validate_public_url("http://nx.invalid", resolve=True)
+    assert len(calls) == 1
+
+
+def test_dns_blocked_after_attempts_are_spent(monkeypatch):
+    """Резолвер молчит все попытки — цель блокируется, но с иной причиной в тексте."""
+    import socket
+
+    resolver, calls = counting_resolver([socket.gaierror(socket.EAI_AGAIN, "Temporary failure")])
+    monkeypatch.setattr("socket.getaddrinfo", resolver)
+
+    with pytest.raises(BlockedTargetError, match="DNS did not answer"):
+        validate_public_url("http://silent.example.com", resolve=True)
+    assert len(calls) == 3
 
 
 # --- воркер -------------------------------------------------------------------------------------
