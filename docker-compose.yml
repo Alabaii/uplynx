@@ -181,6 +181,28 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  # Кеширующий DNS для воркеров. Резолв — самая частая операция проверки
+  # (pin_target на каждом хопе редиректа плюс отдельный резолв под срок
+  # сертификата: 2-7 запросов на один чек), и уходил он каждый раз наружу.
+  # Встроенный резолвер Docker держит внешний форвард открытым, пока отвечает
+  # апстрим, а число одновременных форвардов у него ограничено: на десятке
+  # параллельных проверок с медленным апстримом запросы начинали отваливаться.
+  # Для services/checks.py это неотличимо от недоступной цели — приходил алерт
+  # «cannot resolve host» по живому сайту, сразу по многим мониторам.
+  # Теперь ответ отдаётся из кеша внутри сети, наружу уходит один запрос на
+  # имя в час, а serve_stale переживает недоступность апстрима (deploy/Corefile).
+  resolver:
+    image: coredns/coredns:1.14.6
+    command: ["-conf", "/etc/coredns/Corefile"]
+    volumes:
+      - ./deploy/Corefile:/etc/coredns/Corefile:ro
+    # статический адрес: в dns: у сервисов ниже нужен именно адрес — имя там
+    # резолвить нечем, это и есть настройка резолвера
+    networks:
+      default:
+        ipv4_address: ${RESOLVER_ADDRESS:-172.28.53.53}
+    restart: unless-stopped
+
   worker-http:
     build: ./backend
     command: python -m app.workers.http_worker
@@ -219,6 +241,23 @@ services:
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5173}
     ports:
       - "127.0.0.1:9102:9102"
+    # Резолвер проверок. Имена контейнеров (postgres, rabbitmq) это не ломает:
+    # в resolv.conf по-прежнему стоит встроенный 127.0.0.11, а список ниже —
+    # апстримы, куда он форвардит внешние имена (проверено docker run --dns).
+    # Второй адрес — на случай, если сам resolver лежит: без него его перезапуск
+    # ронял бы резолв всех проверок разом.
+    dns:
+      - ${RESOLVER_ADDRESS:-172.28.53.53}
+      - 8.8.8.8
+    dns_opt:
+      # glibc шлёт A и AAAA одновременно с одного сокета, и ответы на них
+      # склеиваются на пути через NAT — это отдельный источник плавающих
+      # gaierror. reopen разводит запросы по разным сокетам
+      - single-request-reopen
+      # дефолт glibc — 5 секунд на попытку и две попытки: до кеша в соседнем
+      # контейнере столько ждать незачем, а проверка всё это время висит
+      - timeout:2
+      - attempts:3
     restart: unless-stopped
     depends_on:
       migrate:
@@ -227,6 +266,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      resolver:
+        condition: service_started
 
   worker-browser:
     build:
@@ -267,6 +308,15 @@ services:
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5173}
     ports:
       - "127.0.0.1:9103:9103"
+    # то же, что у worker-http: Chromium резолвит имена сценария сам, и
+    # промах резолва там так же превращается в падение проверки
+    dns:
+      - ${RESOLVER_ADDRESS:-172.28.53.53}
+      - 8.8.8.8
+    dns_opt:
+      - single-request-reopen
+      - timeout:2
+      - attempts:3
     restart: unless-stopped
     depends_on:
       migrate:
@@ -275,6 +325,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      resolver:
+        condition: service_started
 
   # Дампы кладутся в ./backups, то есть внутрь каталога проекта. Это годится,
   # когда стек запускают из постоянного каталога на хосте, и бесполезно под
@@ -324,3 +376,15 @@ services:
 volumes:
   postgres-data:
   rabbitmq-data:
+
+networks:
+  # Подсеть фиксируется только ради статического адреса resolver: Docker
+  # принимает в dns: адрес, а не имя, и знать его надо до старта контейнера.
+  # Если подсеть уже занята другой сетью хоста, деплой падает на
+  # «Pool overlaps with other one on this address space» — тогда меняйте
+  # RESOLVER_SUBNET и RESOLVER_ADDRESS согласованно (адрес из этой подсети).
+  # Занятые подсети видно так: docker network ls -q | xargs docker network inspect -f '{{.Name}} {{range .IPAM.Config}}{{.Subnet}}{{end}}'
+  default:
+    ipam:
+      config:
+        - subnet: ${RESOLVER_SUBNET:-172.28.53.0/24}
