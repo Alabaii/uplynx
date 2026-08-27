@@ -20,7 +20,7 @@ aio-pika==10.0.1
 pika==1.4.4
 httpx==0.28.1
 pywebpush==2.4.0
-prometheus-client==0.25.0
+prometheus-client==0.26.0
 sentry-sdk==2.67.1
 pytest==9.1.1
 pytest-asyncio==1.4.0
